@@ -18,6 +18,7 @@ class CollectedItem(TypedDict):
     summary: str
     content_type: str   # code | comparison | trend
     thumbnail: str      # og:image URL (empty string if unavailable)
+    topic: str          # assigned topic from merge_filter (empty string if unmatched)
 
 
 class ReviewIssue(TypedDict):

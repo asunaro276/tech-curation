@@ -32,6 +32,7 @@ def _search_repos(gh: Github, query: str, max_items: int) -> list[CollectedItem]
                     summary="",
                     content_type="",
                     thumbnail=f"https://opengraph.githubassets.com/1/{path}",
+                    topic="",
                 )
             )
     except RateLimitExceededException:

@@ -116,12 +116,20 @@ def update_config(
         for key, value in param_changes.items():
             if key.startswith("source_weights."):
                 source = key.split(".", 1)[1]
-                text = re.sub(
-                    rf"(## source_weights.*?- {source}:\s*)[0-9.]+",
-                    rf"\g<1>{value}",
-                    text,
-                    flags=re.DOTALL,
-                )
+                if re.search(rf"- {source}:", text):
+                    text = re.sub(
+                        rf"(## source_weights.*?- {source}:\s*)[0-9.]+",
+                        rf"\g<1>{value}",
+                        text,
+                        flags=re.DOTALL,
+                    )
+                else:
+                    # 新規エントリを source_weights セクションの末尾に追加
+                    text = re.sub(
+                        r"(## source_weights\n(?:  - [^\n]+\n)*)",
+                        rf"\g<1>  - {source}: {value}\n",
+                        text,
+                    )
             else:
                 text = re.sub(
                     rf"({key}:\s*)[0-9.]+",

@@ -43,17 +43,12 @@ def handler(event: dict, context) -> dict:
     topics = final_state.get("topics", [])
     formatted_items = final_state.get("formatted_items", [])
 
-    # トピックごとに振り分け（順序を保持）
+    # トピックごとに振り分け（merge_filter が付与した topic フィールドを使用）
     items_by_topic: dict[str, list] = {t: [] for t in topics}
     for item in formatted_items:
-        placed = False
-        for t in topics:
-            if t.lower() in item.get("title", "").lower() or t.lower() in item.get("body", "").lower():
-                items_by_topic[t].append(item)
-                placed = True
-                break
-        if not placed and topics:
-            items_by_topic[topics[0]].append(item)
+        t = item.get("topic", "")
+        if t and t in items_by_topic:
+            items_by_topic[t].append(item)
 
     filename, content = generate_daily_report(
         items_by_topic,

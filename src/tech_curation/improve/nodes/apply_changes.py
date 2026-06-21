@@ -49,6 +49,10 @@ def _apply_topic_changes(topics_path: Path, add: list[str], remove: list[str]) -
             inactive.append(existing or t)
 
     for t in add:
+        # ASCII以外のみのトピック（日本語等）は技術キーワードとして機能しないため追加しない
+        if not t.isascii():
+            print(f"[apply_changes] skip non-ASCII topic: {t}")
+            continue
         if not find_case_insensitive(active, t):
             active.append(t)
         existing_inactive = find_case_insensitive(inactive, t)

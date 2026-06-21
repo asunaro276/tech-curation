@@ -1,10 +1,16 @@
 """Summarize & Format node: LLM summary, content type classification, template application."""
 from __future__ import annotations
 
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from tech_curation.collect.state import CollectedItem, CollectState
 from tech_curation.llm import chat
+
+# LLM が生成する前置き行（「以下は〜」等）を除去するパターン
+_PREAMBLE_RE = re.compile(
+    r"^(?:(?:以下[はにが]|ご依頼|下記[はに])[^\n]*\n+|---\n+|\n+)+"
+)
 
 MAX_WORKERS = 12
 
@@ -34,8 +40,17 @@ def _classify(item: CollectedItem, prompt: str) -> str:
         return "trend"
 
 
+def _clean_summary(text: str) -> str:
+    """前置き除去・Markdown ヘッダ太字化・コードブロック補完。"""
+    text = _PREAMBLE_RE.sub("", text)
+    text = re.sub(r"^#{1,3} (.+)$", r"**\1**", text, flags=re.MULTILINE)
+    if text.count("```") % 2 != 0:
+        text = text.rstrip() + "\n```"
+    return text.strip()
+
+
 def _process_item(item: CollectedItem, summarize_prompt: str, classify_prompt: str) -> CollectedItem:
-    summary = _summarize(item, summarize_prompt)
+    summary = _clean_summary(_summarize(item, summarize_prompt))
     content_type = _classify(item, classify_prompt)
     return {**item, "summary": summary, "content_type": content_type}
 

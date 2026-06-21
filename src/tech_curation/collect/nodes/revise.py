@@ -1,8 +1,23 @@
 """Revise node: applies review issues — removes items or rewrites summaries."""
 from __future__ import annotations
 
+import re
+
 from tech_curation.collect.state import CollectState
 from tech_curation.llm import chat
+
+_PREAMBLE_RE = re.compile(
+    r"^(?:(?:以下[はにが]|ご依頼|下記[はに])[^\n]*\n+|---\n+|\n+)+"
+)
+
+
+def _clean_summary(text: str) -> str:
+    """前置き除去・Markdown ヘッダ太字化・コードブロック補完。"""
+    text = _PREAMBLE_RE.sub("", text)
+    text = re.sub(r"^#{1,3} (.+)$", r"**\1**", text, flags=re.MULTILINE)
+    if text.count("```") % 2 != 0:
+        text = text.rstrip() + "\n```"
+    return text.strip()
 
 
 def revise_node(state: CollectState) -> CollectState:
@@ -38,7 +53,7 @@ def revise_node(state: CollectState) -> CollectState:
                 f"Article:\nTitle: {item['title']}\n\n{item['body'][:1000]}"
             )
             try:
-                new_summary = chat([{"role": "user", "content": prompt}], max_tokens=256)
+                new_summary = _clean_summary(chat([{"role": "user", "content": prompt}], max_tokens=256))
                 print(f"[revise] rewrite [{i}]: {item['title'][:60]}")
                 revised.append({**item, "summary": new_summary})
             except Exception as exc:

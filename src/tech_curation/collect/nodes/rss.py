@@ -19,8 +19,15 @@ DEFAULT_FEEDS = [
 FEEDS_VAULT_PATH = "agent-config/feeds.md"
 
 
-def _parse_feeds_md(text: str) -> list[str]:
-    urls: list[str] = []
+import re as _re
+
+_FEED_LINE_RE = _re.compile(r"^-\s+(https?://\S+?)(?:\s+\[([^\]]+)\])?\s*$")
+
+
+def _parse_feeds_md(text: str) -> list[tuple[str, str]]:
+    """feeds.md の ## アクティブ セクションを解析して (url, topic_hint) のリストを返す。
+    行末の [トピック名] がトピックヒント。省略時は空文字。"""
+    entries: list[tuple[str, str]] = []
     in_active = False
     for line in text.splitlines():
         stripped = line.strip()
@@ -29,11 +36,11 @@ def _parse_feeds_md(text: str) -> list[str]:
             continue
         if stripped.startswith("## "):
             in_active = False
-        if in_active and stripped.startswith("- "):
-            url = stripped[2:].strip()
-            if url.startswith("http"):
-                urls.append(url)
-    return urls
+        if in_active:
+            m = _FEED_LINE_RE.match(stripped)
+            if m:
+                entries.append((m.group(1), m.group(2) or ""))
+    return entries
 
 
 def _source_label(url: str) -> str:
@@ -43,12 +50,41 @@ def _source_label(url: str) -> str:
         return "zenn"
     if "qiita.com" in url:
         return "qiita"
+    if "jser.info" in url:
+        return "jser"
+    if "codezine.jp" in url:
+        return "codezine"
     if "substack" in url:
         return "substack"
     return "rss"
 
 
-def _entry_to_item(entry, source_label: str) -> CollectedItem:
+# techfeed.io チャンネル URL → トピック名の対応（topics.md と一致させる）
+_FEED_TOPIC_MAP: dict[str, str] = {
+    "channels/TypeScript": "TypeScript/JavaScript",
+    "channels/Ruby?": "Ruby",
+    "zenn.dev/topics/ruby": "Ruby",
+    "zenn.dev/topics/rails": "Ruby on Rails",
+    "channels/Vue.js": "vue",
+    "channels/Go?": "Go",
+    "channels/PostgreSQL": "postgresql",
+    "blog.vuejs.org": "vue",
+    "zenn.dev/topics/vue": "vue",
+    "zenn.dev/topics/go": "Go",
+    "planet.postgresql.org": "postgresql",
+    "jser.info": "TypeScript/JavaScript",
+}
+
+
+def _feed_topic_hint_from_url(url: str) -> str:
+    """feeds.md に [トピック名] が無い場合の URL ベースのフォールバック。"""
+    for pattern, topic in _FEED_TOPIC_MAP.items():
+        if pattern in url:
+            return topic
+    return ""
+
+
+def _entry_to_item(entry, source_label: str, topic_hint: str = "") -> CollectedItem:
     published = ""
     if hasattr(entry, "published_parsed") and entry.published_parsed:
         dt = datetime(*entry.published_parsed[:6], tzinfo=timezone.utc)
@@ -72,13 +108,18 @@ def _entry_to_item(entry, source_label: str) -> CollectedItem:
         summary="",
         content_type="",
         thumbnail="",
+        topic=topic_hint,
     )
 
 
-def _fetch_feed(url: str) -> list[CollectedItem]:
+def _fetch_feed(url: str, topic_hint: str = "") -> list[CollectedItem]:
     label = _source_label(url)
+    hint = topic_hint or _feed_topic_hint_from_url(url)
     feed = feedparser.parse(url)
-    return [_entry_to_item(entry, label) for entry in feed.entries]
+    return [_entry_to_item(entry, label, hint) for entry in feed.entries]
+
+
+_DEFAULT_FEED_ENTRIES = [(url, "") for url in DEFAULT_FEEDS]
 
 
 def rss_node(state: CollectState) -> CollectState:
@@ -86,22 +127,25 @@ def rss_node(state: CollectState) -> CollectState:
     feeds_path = vault_root / FEEDS_VAULT_PATH
 
     if feeds_path.exists():
-        feed_urls = _parse_feeds_md(feeds_path.read_text(encoding="utf-8"))
-        if not feed_urls:
-            feed_urls = list(DEFAULT_FEEDS)
+        feed_entries = _parse_feeds_md(feeds_path.read_text(encoding="utf-8"))
+        if not feed_entries:
+            feed_entries = list(_DEFAULT_FEED_ENTRIES)
     else:
-        feed_urls = list(DEFAULT_FEEDS)
+        feed_entries = list(_DEFAULT_FEED_ENTRIES)
 
     config = state["config"]
-    max_per_feed = max(5, config.max_items_per_run // max(len(feed_urls), 1))
+    base_per_feed = max(15, config.max_items_per_run // max(len(feed_entries) // 3, 1))
 
     items: list[CollectedItem] = []
     errors: list[str] = []
 
-    for url in feed_urls:
+    for url, topic_hint in feed_entries:
         try:
-            fetched = _fetch_feed(url)
-            items.extend(fetched[:max_per_feed])
+            fetched = _fetch_feed(url, topic_hint)
+            source = _source_label(url)
+            weight = config.source_weights.get(source, 1.0)
+            per_feed = max(5, round(base_per_feed * weight))
+            items.extend(fetched[:per_feed])
         except Exception as exc:
             errors.append(f"rss:{url}:{exc}")
 
