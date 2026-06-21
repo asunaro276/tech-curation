@@ -1,0 +1,7 @@
+{
+  "FunctionName": "tech-curation-improve",
+  "PackageType": "Image",
+  "Code": {
+    "ImageUri": "{{ tfstate `aws_ecr_repository.this.repository_url` }}:latest"
+  }
+}
