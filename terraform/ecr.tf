@@ -15,10 +15,11 @@ resource "aws_ecr_lifecycle_policy" "this" {
     rules = [
       {
         rulePriority = 1
-        description  = "Keep only the most recent image (deploy always pushes :latest, so older digests are immediately disposable)"
+        description  = "Expire untagged images after 1 day (the :latest tag itself is never matched by tagStatus=untagged, so the current image is always kept)"
         selection = {
-          tagStatus   = "any"
-          countType   = "imageCountMoreThan"
+          tagStatus   = "untagged"
+          countType   = "sinceImagePushed"
+          countUnit   = "days"
           countNumber = 1
         }
         action = {
