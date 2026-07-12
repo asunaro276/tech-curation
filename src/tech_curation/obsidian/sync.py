@@ -1,4 +1,4 @@
-"""ob sync push/pull wrappers and Secrets Manager credential injection."""
+"""ob sync push/pull wrappers and Parameter Store credential injection."""
 from __future__ import annotations
 
 import json
@@ -14,18 +14,18 @@ if os.environ.get("AWS_LAMBDA_FUNCTION_NAME"):
     os.environ.setdefault("HOME", "/tmp")
 
 
-def _load_ob_credentials_from_secrets_manager(secret_name: str) -> dict:
+def _load_ob_credentials_from_parameter_store(parameter_name: str) -> dict:
     import boto3
 
-    client = boto3.client("secretsmanager")
-    response = client.get_secret_value(SecretId=secret_name)
-    return json.loads(response["SecretString"])
+    client = boto3.client("ssm")
+    response = client.get_parameter(Name=parameter_name, WithDecryption=True)
+    return json.loads(response["Parameter"]["Value"])
 
 
 def setup_ob_credentials(vault_root: Path) -> None:
-    """Read auth_token + vault_name from Secrets Manager and configure ob for Lambda.
+    """Read auth_token + vault_name from Parameter Store and configure ob for Lambda.
 
-    Secrets Manager の値は以下の JSON 形式:
+    Parameter Store の値は以下の JSON 形式の SecureString:
       {
         "auth_token": "<~/.config/obsidian-headless/auth_token の内容>",
         "vault_name": "My Vault",
@@ -35,18 +35,18 @@ def setup_ob_credentials(vault_root: Path) -> None:
     Lambda の /tmp は warm start で共有されるため、ob sync-setup はセンチネルファイルで
     コールドスタート時のみ実行する。
     """
-    secret_name = os.environ.get("OB_CREDENTIALS_SECRET", "tech-curation/ob-credentials")
-    if not secret_name:
+    parameter_name = os.environ.get("OB_CREDENTIALS_PARAMETER", "/tech-curation/ob-credentials")
+    if not parameter_name:
         return
     try:
-        creds = _load_ob_credentials_from_secrets_manager(secret_name)
+        creds = _load_ob_credentials_from_parameter_store(parameter_name)
 
         # obsidian-headless の認証トークンを書き込む
         config_dir = Path.home() / ".config" / "obsidian-headless"
         config_dir.mkdir(parents=True, exist_ok=True)
         (config_dir / "auth_token").write_text(creds["auth_token"], encoding="utf-8")
 
-        # DeepSeek API キーを環境変数に設定（Secrets Manager に格納）
+        # DeepSeek API キーを環境変数に設定（Parameter Store に格納）
         if creds.get("deepseek_api_key"):
             os.environ["DEEPSEEK_API_KEY"] = creds["deepseek_api_key"]
 

@@ -28,23 +28,26 @@ make apply
 以下のリソースが作成されます：
 - ECR リポジトリ（tech-curation）
 - IAM ロール（lambda-role / scheduler-role）
-- Secrets Manager シークレット（tech-curation/ob-credentials）
+- Parameter Store パラメータ（/tech-curation/ob-credentials, SecureString）
 - API Gateway v2（POST /improve エンドポイント）
 - EventBridge Scheduler（毎日 07:00 JST → collect Lambda）
 - Lambda x2（tech-curation-collect / tech-curation-improve）
 
-### 3. ob login クレデンシャルを Secrets Manager に登録
+### 3. ob login クレデンシャルを Parameter Store に登録
 
-`terraform apply` 完了後、ob login クレデンシャルを手動で投入します。
+`terraform apply` 完了後、ob login クレデンシャルを手動で投入します（Terraform 側は
+`lifecycle.ignore_changes = [value]` によりプレースホルダー値のまま管理対象外にしています）。
 
 ```bash
 # ob loginを実行してクレデンシャルを生成（初回のみ）
 ob login
 
-# Secrets Managerに登録
-aws secretsmanager put-secret-value \
-  --secret-id tech-curation/ob-credentials \
-  --secret-string "$(cat ~/.config/obsidian-headless/credentials.json)"
+# Parameter Storeに登録
+aws ssm put-parameter \
+  --name /tech-curation/ob-credentials \
+  --type SecureString \
+  --value "$(cat ~/.config/obsidian-headless/credentials.json)" \
+  --overwrite
 ```
 
 ### 4. コンテナイメージのビルドとデプロイ
@@ -75,7 +78,7 @@ terraform/
   outputs.tf     # api_gateway_url, ecr_repository_url
   ecr.tf         # aws_ecr_repository
   iam.tf         # lambda-role + scheduler-role
-  secrets.tf     # aws_secretsmanager_secret
+  secrets.tf     # aws_ssm_parameter
   lambda.tf      # Lambda x2（ignore_changes=[image_uri]）
   api_gw.tf      # HTTP API + integration + route + stage + permission
   scheduler.tf   # aws_scheduler_schedule（daily at 22:00 UTC）

@@ -12,9 +12,9 @@ resource "aws_lambda_function" "collect" {
 
   environment {
     variables = {
-      VAULT_ROOT            = "/tmp/vault"
-      OB_CREDENTIALS_SECRET = aws_secretsmanager_secret.ob_credentials.name
-      API_GATEWAY_URL       = "${aws_apigatewayv2_api.this.api_endpoint}/${aws_apigatewayv2_stage.prod.name}"
+      VAULT_ROOT               = "/tmp/vault"
+      OB_CREDENTIALS_PARAMETER = aws_ssm_parameter.ob_credentials.name
+      API_GATEWAY_URL          = "${aws_apigatewayv2_api.this.api_endpoint}/${aws_apigatewayv2_stage.prod.name}"
     }
   }
 
@@ -37,8 +37,8 @@ resource "aws_lambda_function" "improve" {
 
   environment {
     variables = {
-      VAULT_ROOT            = "/tmp/vault"
-      OB_CREDENTIALS_SECRET = aws_secretsmanager_secret.ob_credentials.name
+      VAULT_ROOT               = "/tmp/vault"
+      OB_CREDENTIALS_PARAMETER = aws_ssm_parameter.ob_credentials.name
     }
   }
 

@@ -8,7 +8,7 @@ output "ecr_repository_url" {
   value       = aws_ecr_repository.this.repository_url
 }
 
-output "ob_credentials_secret_name" {
-  description = "Secrets Manager secret name for ob login credentials"
-  value       = aws_secretsmanager_secret.ob_credentials.name
+output "ob_credentials_parameter_name" {
+  description = "Parameter Store parameter name for ob login credentials"
+  value       = aws_ssm_parameter.ob_credentials.name
 }

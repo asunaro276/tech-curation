@@ -33,16 +33,27 @@ resource "aws_iam_role_policy" "lambda_invoke_improve" {
   })
 }
 
-resource "aws_iam_role_policy" "lambda_secrets" {
-  name = "SecretsManagerRead"
+data "aws_kms_alias" "ssm" {
+  name = "alias/aws/ssm"
+}
+
+resource "aws_iam_role_policy" "lambda_parameter_store" {
+  name = "ParameterStoreRead"
   role = aws_iam_role.lambda.id
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Effect   = "Allow"
-      Action   = "secretsmanager:GetSecretValue"
-      Resource = "arn:aws:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:tech-curation/*"
-    }]
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = "ssm:GetParameter"
+        Resource = "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/tech-curation/*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = "kms:Decrypt"
+        Resource = data.aws_kms_alias.ssm.target_key_arn
+      }
+    ]
   })
 }
 
