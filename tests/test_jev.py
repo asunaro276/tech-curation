@@ -63,13 +63,47 @@ class TestJudgeRelevanceAndTopic:
             assert jev.judge_relevance_and_topic(_item(), ["Go"], RUBRIC) == (jev.NEUTRAL, None)
 
 
-class TestJudgeWorth:
+class TestJudgeWorthAndPrimary:
     def test_success(self):
         client = MagicMock()
-        client.system_one.return_value = _response(noul=0.83)
+        resp = MagicMock()
+        resp.nouls = {"worth": MagicMock(noul=0.83), "is_primary": MagicMock(noul=0.1)}
+        client.system_one.return_value = resp
         with patch.object(jev, "_client", return_value=client):
-            assert jev.judge_worth(_item(), "要約する価値があるか") == 0.83
+            assert jev.judge_worth_and_primary(_item(), "要約する価値があるか") == (0.83, 0.1)
+        assert set(client.system_one.call_args.kwargs["questions"]) == {"worth", "is_primary"}
 
     def test_failure_returns_neutral(self):
         with patch.object(jev, "_client", side_effect=RuntimeError("no key")):
-            assert jev.judge_worth(_item(), "要約する価値があるか") == jev.NEUTRAL
+            assert jev.judge_worth_and_primary(_item(), "要約する価値があるか") == (jev.NEUTRAL, jev.NEUTRAL)
+
+
+class TestGroupChoices:
+    def test_labels(self):
+        seeds = [_item("Go 1.25 まとめ")]
+        past = [{"date": "2026-10-06", "no": 1, "topic": "Go", "title": "Go 1.25 RC", "summary": "RC"}]
+        choices = jev.build_group_choices(seeds, past)
+        assert list(choices) == ["new", "g0", "same:p0", "follow:p0"]
+        assert choices["follow:p0"]["title"] == "Go 1.25 RC"
+
+    def test_past_groups_are_capped(self):
+        past = [{"date": "2026-10-06", "no": i, "topic": "Go", "title": f"t{i}", "summary": ""} for i in range(300)]
+        choices = jev.build_group_choices([_item()] * 3, past)
+        assert len(choices) <= jev.MAX_CHOICE_LABELS
+        assert "same:p0" in choices  # 新しいものから残る
+
+    def test_judge_group_returns_label(self):
+        client = MagicMock()
+        client.system_one.return_value.choices = {"group": MagicMock(choice="g0")}
+        with patch.object(jev, "_client", return_value=client):
+            assert jev.judge_group(_item(), [_item("seed")], [], "基準") == "g0"
+
+    def test_judge_group_unknown_label_is_failure(self):
+        client = MagicMock()
+        client.system_one.return_value.choices = {"group": MagicMock(choice="g9")}
+        with patch.object(jev, "_client", return_value=client):
+            assert jev.judge_group(_item(), [_item("seed")], [], "基準") is None
+
+    def test_judge_group_failure(self):
+        with patch.object(jev, "_client", side_effect=RuntimeError("down")):
+            assert jev.judge_group(_item(), [], [], "基準") is None

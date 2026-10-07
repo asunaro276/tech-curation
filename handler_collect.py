@@ -3,12 +3,14 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 
 from tech_curation.collect.graph import get_collect_app
 from tech_curation.collect.state import CollectState
 from tech_curation.config.settings import AgentConfig, load_config
-from tech_curation.obsidian.report import generate_daily_report
+from tech_curation.obsidian.records import build_daily_record, record_path
+from tech_curation.obsidian.report import generate_daily_report, number_items
 from tech_curation.obsidian.sync import ob_sync_pull, ob_sync_push, setup_ob_credentials, write_vault_file
 
 VAULT_ROOT = Path(os.environ.get("VAULT_ROOT", str(Path.home() / "vault")))
@@ -50,11 +52,16 @@ def handler(event: dict, context) -> dict:
         if t and t in items_by_topic:
             items_by_topic[t].append(item)
 
+    date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     filename, content = generate_daily_report(
         items_by_topic,
         api_gateway_url=API_GATEWAY_URL,
+        date_str=date_str,
     )
     write_vault_file(VAULT_ROOT, filename, content)
+    # 翌日以降の重複判定と、dup フィードバックの解決に使う記録（レポートと同じ通し番号）
+    record = build_daily_record(date_str, number_items(items_by_topic))
+    write_vault_file(VAULT_ROOT, record_path(date_str), json.dumps(record, ensure_ascii=False, indent=2))
 
     ob_sync_push(VAULT_ROOT)
 

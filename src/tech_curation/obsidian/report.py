@@ -11,13 +11,23 @@ from tech_curation.obsidian.templates import format_item
 AGENT_VERSION = "0.1.0"
 
 
+def number_items(items_by_topic: dict[str, list[CollectedItem]]) -> list[tuple[int, str, CollectedItem]]:
+    """レポートに載る順に 1 からの通し番号を振る。レポートと items.json で同じ番号を使う。"""
+    numbered: list[tuple[int, str, CollectedItem]] = []
+    for topic, items in items_by_topic.items():
+        for item in items:
+            numbered.append((len(numbered) + 1, topic, item))
+    return numbered
+
+
 def generate_daily_report(
     items_by_topic: dict[str, list[CollectedItem]],
     *,
     api_gateway_url: str = "",
+    date_str: str | None = None,
 ) -> tuple[str, str]:
     """Return (filename, markdown_content) combining all topics into one daily file."""
-    date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    date_str = date_str or datetime.now(timezone.utc).strftime("%Y-%m-%d")
     filename = f"tech-curation/{date_str}/daily.md"
 
     frontmatter = (
@@ -34,12 +44,10 @@ def generate_daily_report(
         "<!-- overall: comment= -->\n\n"
     )
 
-    body_parts: list[str] = []
-    for topic, items in items_by_topic.items():
-        if not items:
-            continue
-        sections = "\n".join(format_item(item, idx) for idx, item in enumerate(items))
-        body_parts.append(f"## {topic}\n\n{sections}")
+    sections_by_topic: dict[str, list[str]] = {}
+    for no, topic, item in number_items(items_by_topic):
+        sections_by_topic.setdefault(topic, []).append(format_item(item, no))
+    body_parts = [f"## {topic}\n\n" + "\n".join(sections) for topic, sections in sections_by_topic.items()]
 
     body = "\n---\n\n".join(body_parts)
 

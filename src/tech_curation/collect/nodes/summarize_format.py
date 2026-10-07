@@ -17,13 +17,35 @@ MAX_WORKERS = 12
 VALID_CONTENT_TYPES = {"code", "comparison", "trend"}
 
 
+# グループ要約に渡す本文の長さ（代表記事・関連記事それぞれ）と関連記事の本数の上限
+SINGLE_BODY_LIMIT = 1000
+REP_BODY_LIMIT = 1500
+RELATED_BODY_LIMIT = 500
+MAX_RELATED = 4
+
+_GROUP_INSTRUCTION = (
+    "以下は同じ話題を扱う複数の記事です。代表記事を軸に、関連記事にしか書かれていない観点も含めて、"
+    "1本の要約にまとめてください。"
+)
+
+
+def summary_request(item: CollectedItem, prompt: str) -> tuple[str, int]:
+    """要約の依頼文と max_tokens を返す。関連記事があればグループ全体を1本にまとめる依頼にする。"""
+    related = item.get("related", [])[:MAX_RELATED]
+    if not related:
+        content = f"Title: {item['title']}\n\n{item['body'][:SINGLE_BODY_LIMIT]}"
+        return f"{prompt}\n\nArticle:\n{content}", 256
+
+    parts = [f"## 代表記事\nTitle: {item['title']}\nSource: {item.get('source', '')}\n\n{item['body'][:REP_BODY_LIMIT]}"]
+    for n, r in enumerate(related, start=1):
+        parts.append(f"## 関連記事 {n}\nTitle: {r['title']}\nSource: {r.get('source', '')}\n\n{r['body'][:RELATED_BODY_LIMIT]}")
+    return f"{_GROUP_INSTRUCTION}\n\n{prompt}\n\nArticles:\n" + "\n\n".join(parts), 512
+
+
 def _summarize(item: CollectedItem, prompt: str) -> str:
-    content = f"Title: {item['title']}\n\n{item['body'][:1000]}"
+    content, max_tokens = summary_request(item, prompt)
     try:
-        return chat(
-            [{"role": "user", "content": f"{prompt}\n\nArticle:\n{content}"}],
-            max_tokens=256,
-        )
+        return chat([{"role": "user", "content": content}], max_tokens=max_tokens)
     except Exception:
         return item["body"][:300]
 

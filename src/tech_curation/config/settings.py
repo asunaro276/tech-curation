@@ -49,6 +49,12 @@ class AgentConfig:
         "コードやベンチマークを含む記事は yes。"
         "内容がほぼ空、タイトルと本文が一致しない、宣伝だけの記事は no。"
     )
+    grouping_criteria: str = (
+        "この記事は、選択肢のどの話題と同じか。"
+        "同じ出来事を扱う記事は同じ話題とする（例: あるリリースの公式リリースノートと、その解説記事・まとめ記事）。"
+        "同じライブラリでも別の機能や別の出来事を扱う記事は別の話題とする。"
+        "過去に掲載した話題に新しい情報が加わったもの（RC から正式版、続編、追加の発表）は同じ話題ではなく続報とする。"
+    )
     topic_quotas: dict[str, int] = field(
         default_factory=lambda: {
             "Go": 1,
@@ -95,6 +101,9 @@ _PROMPT_RE = {
     ),
     "worth_criteria": re.compile(
         r"## worth_criteria\n(.*?)(?=\n## |\Z)", re.DOTALL
+    ),
+    "grouping_criteria": re.compile(
+        r"## grouping_criteria\n(.*?)(?=\n## |\Z)", re.DOTALL
     ),
 }
 _QUOTA_RE = re.compile(r"^\s*-\s*(.+?):\s*(\d+)\s*$", re.MULTILINE)
@@ -149,6 +158,7 @@ def _default_prompts_md() -> str:
         f"## content_type_prompt\n{cfg.content_type_prompt}\n\n"
         f"## relevance_criteria\n{cfg.relevance_criteria}\n\n"
         f"## worth_criteria\n{cfg.worth_criteria}\n\n"
+        f"## grouping_criteria\n{cfg.grouping_criteria}\n\n"
         f"## topic_quotas\n{quotas}\n- default: {cfg.default_topic_quota}\n"
     )
 

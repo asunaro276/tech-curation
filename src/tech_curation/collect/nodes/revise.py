@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 
+from tech_curation.collect.nodes.summarize_format import summary_request
 from tech_curation.collect.state import CollectState
 from tech_curation.llm import chat
 
@@ -46,14 +47,12 @@ def revise_node(state: CollectState) -> CollectState:
         if i in rewrite_map:
             issue = rewrite_map[i]
             hint = issue["rewrite_hint"]
-            prompt = (
-                f"関心トピック: {topic_str}\n"
-                f"改善指示: {hint}\n\n"
-                f"{config.summarize_prompt}\n\n"
-                f"Article:\nTitle: {item['title']}\n\n{item['body'][:1000]}"
+            prompt, max_tokens = summary_request(
+                item,
+                f"関心トピック: {topic_str}\n改善指示: {hint}\n\n{config.summarize_prompt}",
             )
             try:
-                new_summary = _clean_summary(chat([{"role": "user", "content": prompt}], max_tokens=256))
+                new_summary = _clean_summary(chat([{"role": "user", "content": prompt}], max_tokens=max_tokens))
                 print(f"[revise] rewrite [{i}]: {item['title'][:60]}")
                 revised.append({**item, "summary": new_summary})
             except Exception as exc:

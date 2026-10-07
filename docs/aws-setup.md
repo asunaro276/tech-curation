@@ -52,15 +52,27 @@ aws ssm put-parameter \
 
 ### 3.5. LLM / 判定モデルの API キー
 
-collect Lambda は次の環境変数を必要とします（improve Lambda は `DEEPSEEK_API_KEY` のみ）。
+API キーは手順 3 の Parameter Store（`/tech-curation/ob-credentials`）の JSON に一緒に入れます。
+Lambda 起動時に `setup_ob_credentials` が読み出し、環境変数に設定します。
 
-| 環境変数 | 用途 |
-|---------|------|
-| `DEEPSEEK_API_KEY` | 要約・コンテンツ種別判定・レビュー（DeepSeek） |
-| `TYPESAFE_API_KEY` | 関連度・トピック判定と記事選定（TypeSafe AI の Jev） |
+| JSON のキー | 設定される環境変数 | 用途 |
+|------------|------------------|------|
+| `deepseek_api_key` | `DEEPSEEK_API_KEY` | 要約・コンテンツ種別判定・レビュー・改善提案（DeepSeek） |
+| `typesafe_api_key` | `TYPESAFE_API_KEY` | 関連度・トピック判定、記事選定、話題のグループ分け（TypeSafe AI の Jev） |
+| `github_token` | `GITHUB_TOKEN` | GitHub 検索（任意） |
+| `api_token` | `API_TOKEN` | フィードバック送信 API の認証（任意） |
 
-`TYPESAFE_API_KEY` は `DEEPSEEK_API_KEY` と同じ方法で collect Lambda に設定してください。
-未設定の場合も収集は止まりませんが、Jev の判定がすべて失敗扱いになり、全記事の関連度・価値が中立値 0.5 として選定されます（ログに `[jev] ERR(...)` が出ます）。
+```bash
+# 既存の値を取り出して typesafe_api_key を追加し、上書きする
+aws ssm get-parameter --name /tech-curation/ob-credentials --with-decryption \
+  --query Parameter.Value --output text \
+  | jq --arg key "<TypeSafe の API キー>" '. + {typesafe_api_key: $key}' > /tmp/ob-credentials.json
+aws ssm put-parameter --name /tech-curation/ob-credentials --type SecureString \
+  --value "file:///tmp/ob-credentials.json" --overwrite
+rm /tmp/ob-credentials.json
+```
+
+`typesafe_api_key` が未設定でも収集は止まりませんが、Jev の判定がすべて失敗扱いになり、全記事の関連度・価値が中立値 0.5 として選定され、話題のグループ分けも行われません（ログに `[jev] ERR(...)` が出ます）。
 
 ### 4. コンテナイメージのビルドとデプロイ
 

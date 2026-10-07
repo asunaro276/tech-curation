@@ -28,6 +28,7 @@ class ImproveState(TypedDict):
     note_path: str
     note_content: str
     feedback_items: list[FeedbackItem]
+    duplicate_feedback: list[str]  # dup= を items.json で解決した説明文
     overall_feedback: str       # <!-- overall: comment=... --> の内容
     policy: str                 # agent-config/policy.md の内容
     source_labels: list[str]

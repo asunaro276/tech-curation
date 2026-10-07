@@ -29,7 +29,8 @@ def setup_ob_credentials(vault_root: Path) -> None:
       {
         "auth_token": "<~/.config/obsidian-headless/auth_token の内容>",
         "vault_name": "My Vault",
-        "vault_password": ""   // E2E暗号化vaultの場合のみ
+        "vault_password": "",  // E2E暗号化vaultの場合のみ
+        "deepseek_api_key": "...", "typesafe_api_key": "...", "github_token": "...", "api_token": "..."
       }
 
     Lambda の /tmp は warm start で共有されるため、ob sync-setup はセンチネルファイルで
@@ -49,6 +50,10 @@ def setup_ob_credentials(vault_root: Path) -> None:
         # DeepSeek API キーを環境変数に設定（Parameter Store に格納）
         if creds.get("deepseek_api_key"):
             os.environ["DEEPSEEK_API_KEY"] = creds["deepseek_api_key"]
+
+        # TypeSafe AI（Jev）API キー（未設定時は判定がすべて中立値 0.5 になる）
+        if creds.get("typesafe_api_key"):
+            os.environ["TYPESAFE_API_KEY"] = creds["typesafe_api_key"]
 
         # GitHub API トークン（任意: 未設定時は匿名 60req/h）
         if creds.get("github_token"):

@@ -80,14 +80,68 @@ def judge_relevance_and_topic(
         return NEUTRAL, None
 
 
-def judge_worth(item: CollectedItem, worth_criteria: str) -> float:
-    """「要約する価値があるか」の確率を返す。失敗時は 0.5。"""
+def judge_worth_and_primary(item: CollectedItem, worth_criteria: str) -> tuple[float, float]:
+    """「要約する価値があるか」と「一次情報か」の確率を1回の呼び出しで返す。失敗時は (0.5, 0.5)。"""
     try:
         response = _client().system_one(
             state=_article_state(item),
-            questions={"worth": Noul(instructions=worth_criteria)},
+            questions={
+                "worth": Noul(instructions=worth_criteria),
+                "is_primary": Noul(
+                    instructions="この記事は一次情報か（公式ドキュメント・公式ブログ・リリースノート・作者本人による発表）",
+                ),
+            },
         )
-        return response.nouls["worth"].noul
+        return response.nouls["worth"].noul, response.nouls["is_primary"].noul
     except Exception as exc:
         print(f"[jev] ERR({exc}) | {item['title'][:60]}")
-        return NEUTRAL
+        return NEUTRAL, NEUTRAL
+
+
+MAX_CHOICE_LABELS = 255
+NEW_GROUP = "new"
+
+
+def build_group_choices(
+    today_seeds: list[CollectedItem],
+    past_groups: list[dict],
+) -> dict[str, dict | str]:
+    """グループ判定の選択肢を作る。new / gN（今日のグループ）/ same:pK・follow:pK（過去のグループ）。
+
+    過去のグループは新しい順に渡し、Choice のラベル上限に収まる分だけ使う。
+    """
+    choices: dict[str, dict | str] = {NEW_GROUP: "今日・過去のどの話題とも異なる新しい話題"}
+    for i, seed in enumerate(today_seeds):
+        choices[f"g{i}"] = {
+            "relation": "今日の別の記事と同じ話題",
+            "title": seed.get("title", ""),
+            "excerpt": (seed.get("body", "") or "")[:200],
+        }
+    max_past = max(0, (MAX_CHOICE_LABELS - len(choices)) // 2)
+    for j, past in enumerate(past_groups[:max_past]):
+        base = {"date": past["date"], "title": past["title"], "summary": (past.get("summary", "") or "")[:200]}
+        choices[f"same:p{j}"] = {"relation": "過去に掲載した話題と同じ（新しい情報はない）", **base}
+        choices[f"follow:p{j}"] = {"relation": "過去に掲載した話題の続報（新しい版・続編・追加の発表）", **base}
+    return choices
+
+
+def judge_group(
+    item: CollectedItem,
+    today_seeds: list[CollectedItem],
+    past_groups: list[dict],
+    grouping_criteria: str,
+) -> str | None:
+    """記事がどのグループに属するかのラベルを返す。失敗時は None。"""
+    choices = build_group_choices(today_seeds, past_groups)
+    try:
+        response = _client().system_one(
+            state=_article_state(item),
+            questions={"group": Choice(instructions=grouping_criteria, criteria=choices)},
+        )
+        label = response.choices["group"].choice
+        if label not in choices:
+            raise ValueError(f"unknown label {label!r}")
+        return label
+    except Exception as exc:
+        print(f"[jev] group ERR({exc}) | {item['title'][:60]}")
+        return None

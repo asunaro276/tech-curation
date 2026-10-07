@@ -27,6 +27,8 @@ Rules:
 - prompt_changes keys: query_gen_prompt, summarize_prompt, content_type_prompt,
   relevance_criteria (rubric lines "- 0: ..." to "- N: ...", low to high relevance),
   worth_criteria (yes/no criteria for whether an article is worth summarizing)
+  grouping_criteria (when articles count as the same subject, a follow-up, or a different subject;
+  change it when the user reports duplicates that were not merged or subjects already read in the past)
 - Use topic_changes to add or remove collection topics based on explicit user feedback
 - Only change topics when the user clearly expressed interest in adding or removing a specific topic
 - topic_changes.remove: topics the user found irrelevant or explicitly said to stop collecting
@@ -50,6 +52,9 @@ def generate_changes_node(state: ImproveState) -> ImproveState:
     sections = [f"Source statistics:\n{stats_text}"]
     if overall_feedback:
         sections.append(f"Overall feedback from user:\n{overall_feedback}")
+    duplicates = state.get("duplicate_feedback", [])
+    if duplicates:
+        sections.append("Duplicate reports from user:\n" + "\n".join(f"- {d}" for d in duplicates))
     sections.append(f"Qualitative analysis:\n{qualitative}")
     prompt = "\n\n".join(sections) + "\n\nPropose configuration changes to improve content relevance."
 

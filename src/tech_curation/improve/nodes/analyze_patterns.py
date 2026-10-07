@@ -38,9 +38,11 @@ def _llm_qualitative_analysis(
     source_stats: list[SourceStats],
     overall_feedback: str,
     policy: str,
+    duplicate_feedback: list[str] | None = None,
 ) -> str:
     comments = [f["comment"] for f in feedback_items if f["comment"]]
-    has_input = comments or overall_feedback
+    duplicates = duplicate_feedback or []
+    has_input = comments or overall_feedback or duplicates
     if not has_input:
         return "No qualitative feedback provided."
 
@@ -56,6 +58,12 @@ def _llm_qualitative_analysis(
         sections.append(f"Overall feedback for this report:\n{overall_feedback}")
     if comments:
         sections.append("Per-item comments:\n" + "\n".join(f"- {c}" for c in comments))
+    if duplicates:
+        sections.append(
+            "Duplicate reports (articles on the same subject were not merged into one section, "
+            "or a subject already read in past reports appeared again):\n"
+            + "\n".join(f"- {d}" for d in duplicates)
+        )
 
     prompt = (
         "Analyze the user feedback below and identify patterns about what they like and dislike. "
@@ -74,10 +82,11 @@ def analyze_patterns_node(state: ImproveState) -> ImproveState:
     source_labels = state.get("source_labels", [])
     overall_feedback = state.get("overall_feedback", "")
     policy = state.get("policy", "")
+    duplicate_feedback = state.get("duplicate_feedback", [])
 
     source_stats = _compute_source_stats(feedback_items, source_labels)
     qualitative = _llm_qualitative_analysis(
-        feedback_items, source_stats, overall_feedback, policy
+        feedback_items, source_stats, overall_feedback, policy, duplicate_feedback
     )
 
     return {**state, "source_stats": source_stats, "qualitative_analysis": qualitative}

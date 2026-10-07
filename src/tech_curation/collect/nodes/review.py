@@ -55,6 +55,14 @@ def _load_review_criteria() -> str:
     return _SYSTEM_DEFAULT_CRITERIA
 
 
+def _related_line(item) -> str:
+    # 各項目は同じ話題の記事をまとめたグループ。除去するとグループ全体がレポートから消える
+    related = item.get("related", [])
+    if not related:
+        return ""
+    return "関連記事: " + " / ".join(r["title"] for r in related) + "\n"
+
+
 def review_node(state: CollectState) -> CollectState:
     items = state.get("formatted_items", [])
     topics = state.get("topics", [])
@@ -65,7 +73,8 @@ def review_node(state: CollectState) -> CollectState:
 
     topic_str = "、".join(topics)
     items_text = "\n\n".join(
-        f"[{i}] タイトル: {item['title']}\nカテゴリ: {item.get('topic', '未分類')}\nソース: {item['source']}\n要約: {item['summary']}"
+        f"[{i}] タイトル: {item['title']}\nカテゴリ: {item.get('topic', '未分類')}\nソース: {item['source']}\n"
+        f"{_related_line(item)}要約: {item['summary']}"
         for i, item in enumerate(items)
     )
     prompt = f"収集対象トピック: {topic_str}\n\n記事リスト:\n{items_text}"

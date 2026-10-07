@@ -38,6 +38,13 @@ def _topic_patterns(topic: str) -> list[re.Pattern]:
 
 _CATCHALL_TOPIC = "トレンド"
 
+# select で同じ話題がまとめられて本数が減る分、上限本数より多めに候補を渡す
+CANDIDATE_MULTIPLIER = 3
+
+
+def candidate_slots(topic: str, base_slots: int, config) -> int:
+    return max(base_slots, config.quota_for(topic) * CANDIDATE_MULTIPLIER)
+
 
 def _assign_topic(item: CollectedItem, topics: list[str]) -> str | None:
     """タイトル→本文の順でキーワードマッチし、最初にヒットしたトピックを返す。
@@ -173,7 +180,7 @@ def merge_filter_node(state: CollectState) -> CollectState:
     filtered: list[CollectedItem] = []
     for topic in topics:
         bucket = sorted(topic_buckets[topic], key=lambda x: x["relevance_score"], reverse=True)
-        filtered.extend(bucket[:slots_per_topic])
+        filtered.extend(bucket[: candidate_slots(topic, slots_per_topic, config)])
 
     bucket_summary = {t: len(topic_buckets[t]) for t in topics}
     print(

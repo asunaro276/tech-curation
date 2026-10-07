@@ -27,6 +27,8 @@ Rules:
 - prompt_changes keys: query_gen_prompt, summarize_prompt, content_type_prompt,
   relevance_criteria (rubric lines "- 0: ..." to "- N: ...", low to high relevance),
   worth_criteria (yes/no criteria for whether an article is worth summarizing)
+  grouping_criteria (when articles count as the same subject, a follow-up, or a different subject;
+  change it when the user reports duplicates that were not merged or subjects already read in the past)
 - Only change topics when the user clearly expressed interest in adding or removing a specific topic
 """
 
