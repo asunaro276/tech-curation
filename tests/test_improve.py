@@ -111,3 +111,71 @@ class TestConfigLoadUpdate:
         update_config(prompts, {"source_weights.hackernews": 0.2}, None, "HN low", "2026-06-21")
         text = prompts.read_text()
         assert "hackernews: 0.2" in text
+
+
+class TestJevConfig:
+    def test_defaults_when_sections_missing(self, tmp_path):
+        prompts = tmp_path / "prompts.md"
+        prompts.write_text("filter_threshold: 0.5\n")
+        cfg = load_config(prompts)
+        assert cfg.relevance_criteria == AgentConfig().relevance_criteria
+        assert cfg.worth_criteria == AgentConfig().worth_criteria
+        assert cfg.quota_for("Go") == 1
+        assert cfg.quota_for("unknown topic") == cfg.default_topic_quota
+
+    def test_loads_criteria_and_quotas(self, tmp_path):
+        prompts = tmp_path / "prompts.md"
+        prompts.write_text(
+            "## relevance_criteria\n- 0: 無関係\n- 1: 関係あり\n\n"
+            "## worth_criteria\n入門記事は no。\n\n"
+            "## topic_quotas\n- Go: 2\n- Ruby on Rails: 4\n- default: 3\n"
+        )
+        cfg = load_config(prompts)
+        assert cfg.relevance_criteria == "- 0: 無関係\n- 1: 関係あり"
+        assert cfg.worth_criteria == "入門記事は no。"
+        assert cfg.quota_for("go") == 2
+        assert cfg.quota_for("Ruby on Rails") == 4
+        assert cfg.quota_for("unknown topic") == 3
+
+    def test_quota_is_at_least_one(self, tmp_path):
+        prompts = tmp_path / "prompts.md"
+        prompts.write_text("## topic_quotas\n- Go: 0\n")
+        assert load_config(prompts).quota_for("Go") == 1
+
+    def test_repo_prompts_md_matches_defaults(self):
+        cfg = load_config(Path(__file__).parent.parent / "vault" / "agent-config" / "prompts.md")
+        defaults = AgentConfig()
+        assert cfg.relevance_criteria == defaults.relevance_criteria
+        assert cfg.worth_criteria == defaults.worth_criteria
+        assert cfg.topic_quotas == defaults.topic_quotas
+        assert cfg.default_topic_quota == defaults.default_topic_quota
+
+    def test_update_existing_topic_quota(self, tmp_path):
+        prompts = tmp_path / "prompts.md"
+        prompts.write_text("## topic_quotas\n\n- Go: 1\n- Ruby: 2\n\n## 改善履歴\n")
+        update_config(prompts, {"topic_quotas.Go": 2}, None, "Go を増やす", "2026-10-07")
+        cfg = load_config(prompts)
+        assert cfg.quota_for("Go") == 2
+        assert cfg.quota_for("Ruby") == 2
+
+    def test_add_new_topic_quota(self, tmp_path):
+        prompts = tmp_path / "prompts.md"
+        prompts.write_text("## topic_quotas\n\n- Go: 1\n\n## 改善履歴\n")
+        update_config(prompts, {"topic_quotas.Rust": 3}, None, "Rust 追加", "2026-10-07")
+        cfg = load_config(prompts)
+        assert cfg.quota_for("Rust") == 3
+        assert cfg.quota_for("Go") == 1
+
+    def test_rewrite_worth_criteria(self, tmp_path):
+        prompts = tmp_path / "prompts.md"
+        prompts.write_text("## worth_criteria\n\n旧基準\n\n## 改善履歴\n")
+        update_config(prompts, None, {"worth_criteria": r"入門記事は no。\d のような記号も保持"}, "入門不要", "2026-10-07")
+        assert load_config(prompts).worth_criteria == r"入門記事は no。\d のような記号も保持"
+
+    def test_missing_criteria_section_is_added(self, tmp_path):
+        prompts = tmp_path / "prompts.md"
+        prompts.write_text("## summarize_prompt\n\n要約して\n\n## 改善履歴\n")
+        update_config(prompts, None, {"relevance_criteria": "- 0: 無関係\n- 1: 関係あり"}, "基準追加", "2026-10-07")
+        cfg = load_config(prompts)
+        assert cfg.relevance_criteria == "- 0: 無関係\n- 1: 関係あり"
+        assert cfg.summarize_prompt == "要約して"

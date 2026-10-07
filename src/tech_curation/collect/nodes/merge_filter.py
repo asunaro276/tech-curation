@@ -1,4 +1,4 @@
-"""Merge & Filter node: dedup, date filter, and LLM relevance scoring."""
+"""Merge & Filter node: dedup, date filter, and Jev relevance scoring / topic assignment."""
 from __future__ import annotations
 
 import math
@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 
 from tech_curation.collect.state import CollectedItem, CollectState
-from tech_curation.llm import chat
+from tech_curation.jev import judge_relevance_and_topic
 
 MAX_WORKERS = 12
 
@@ -118,20 +118,14 @@ def _filter_by_date(items: list[CollectedItem], recency_days: int) -> list[Colle
     return result
 
 
-def _score_relevance(item: CollectedItem, topics: list[str], prompt: str) -> float:
-    topic_str = ", ".join(topics)
-    content = f"Title: {item['title']}\n{item['body'][:500]}"
-    try:
-        text = chat(
-            [{"role": "user", "content": f"{prompt}\n\nTopics: {topic_str}\n\nArticle:\n{content}"}],
-            max_tokens=16,
-        ).strip()
-        score = float(text)
-        print(f"[score] {score:.2f} | {item['title'][:60]}")
-        return score
-    except Exception as exc:
-        print(f"[score] ERR({exc}) | {item['title'][:60]}")
-        return 0.5
+def _resolve_topic(item: CollectedItem, judged: str | None, topics: list[str]) -> str:
+    """フィードの topic ヒント → Jev の判定 → キーワードマッチ（Jev 失敗時）の順で決める。"""
+    hint = item.get("topic", "")
+    if hint and hint in topics:
+        return hint
+    if judged and judged in topics:
+        return judged
+    return _assign_topic(item, topics) or ""
 
 
 def merge_filter_node(state: CollectState) -> CollectState:
@@ -147,17 +141,15 @@ def merge_filter_node(state: CollectState) -> CollectState:
     scored: list[CollectedItem] = [None] * len(items)  # type: ignore
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         future_to_idx = {
-            executor.submit(_score_relevance, item, topics, config.relevance_score_prompt): i
+            executor.submit(judge_relevance_and_topic, item, topics, config.relevance_criteria): i
             for i, item in enumerate(items)
         }
         for future in as_completed(future_to_idx):
             i = future_to_idx[future]
-            score = future.result()
+            score, judged_topic = future.result()
             boost = _SOURCE_BOOST.get(items[i].get("source", ""), 0.0)
             score = min(1.0, score + boost)
-            # フィードURLヒントがあればそれを優先し、なければキーワードマッチ
-            pre_topic = items[i].get("topic", "")
-            assigned = pre_topic if (pre_topic and pre_topic in topics) else (_assign_topic(items[i], topics) or "")
+            assigned = _resolve_topic(items[i], judged_topic, topics)
             scored[i] = {**items[i], "relevance_score": score, "topic": assigned}
 
     passing = [i for i in scored if i["relevance_score"] >= config.filter_threshold]

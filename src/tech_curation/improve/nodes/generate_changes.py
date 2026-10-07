@@ -23,6 +23,10 @@ Rules:
 - Only include prompt_changes if the type of content desired has fundamentally changed
 - param_changes keys for weights use "source_weights.<source>" format
 - Other params: filter_threshold, recency_days, max_items_per_run
+- param_changes keys for per-topic article limits use "topic_quotas.<topic>" format (integer >= 1)
+- prompt_changes keys: query_gen_prompt, summarize_prompt, content_type_prompt,
+  relevance_criteria (rubric lines "- 0: ..." to "- N: ...", low to high relevance),
+  worth_criteria (yes/no criteria for whether an article is worth summarizing)
 - Use topic_changes to add or remove collection topics based on explicit user feedback
 - Only change topics when the user clearly expressed interest in adding or removing a specific topic
 - topic_changes.remove: topics the user found irrelevant or explicitly said to stop collecting

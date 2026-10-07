@@ -50,6 +50,18 @@ aws ssm put-parameter \
   --overwrite
 ```
 
+### 3.5. LLM / 判定モデルの API キー
+
+collect Lambda は次の環境変数を必要とします（improve Lambda は `DEEPSEEK_API_KEY` のみ）。
+
+| 環境変数 | 用途 |
+|---------|------|
+| `DEEPSEEK_API_KEY` | 要約・コンテンツ種別判定・レビュー（DeepSeek） |
+| `TYPESAFE_API_KEY` | 関連度・トピック判定と記事選定（TypeSafe AI の Jev） |
+
+`TYPESAFE_API_KEY` は `DEEPSEEK_API_KEY` と同じ方法で collect Lambda に設定してください。
+未設定の場合も収集は止まりませんが、Jev の判定がすべて失敗扱いになり、全記事の関連度・価値が中立値 0.5 として選定されます（ログに `[jev] ERR(...)` が出ます）。
+
 ### 4. コンテナイメージのビルドとデプロイ
 
 ```bash
