@@ -1,4 +1,10 @@
-## ADDED Requirements
+# self-improvement Specification
+
+## Purpose
+
+フィードバックを分析して収集エージェントの設定（重み・閾値・プロンプト・トピック）を改善し、vault に書き戻す。
+
+## Requirements
 
 ### Requirement: Script-based pattern statistics
 システムはパース済みフィードバックからソース別平均スコア等の統計をScriptで計算しなければならない（SHALL）。

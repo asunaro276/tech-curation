@@ -1,4 +1,10 @@
-## ADDED Requirements
+# information-collection Specification
+
+## Purpose
+
+設定されたトピックについて GitHub・RSS などの複数のソースから技術記事を並列に収集し、重複除去・日付・関連度によって絞り込む。
+
+## Requirements
 
 ### Requirement: Parallel multi-source collection
 システムはGitHub API・RSS・HackerNews・Substackの各ソースを並列に収集するLangGraphパイプラインを持たなければならない（SHALL）。各ソースはLangGraphの独立したノードとして実装し、Merge&Filterノードで統合する。

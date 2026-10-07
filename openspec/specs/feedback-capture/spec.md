@@ -1,4 +1,10 @@
-## ADDED Requirements
+# feedback-capture Specification
+
+## Purpose
+
+Obsidian のレポートに書き込まれたフィードバックを読み取り、改善パイプラインへ送って履歴として残す。
+
+## Requirements
 
 ### Requirement: HTML comment feedback parsing
 システムはMarkdownファイル内の`<!-- fb: relevance=<N>, comment=<text> -->`形式のコメントを正規表現でパースし、構造化データに変換しなければならない（SHALL）。
