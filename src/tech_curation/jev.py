@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 from functools import lru_cache
+from typing import NamedTuple
 
 from typesafe_sdk import Choice, Noul, Score, TypeSafeClient
 
@@ -80,13 +81,27 @@ def judge_relevance_and_topic(
         return NEUTRAL, None
 
 
-def judge_worth_and_primary(item: CollectedItem, worth_criteria: str) -> tuple[float, float]:
-    """「要約する価値があるか」と「一次情報か」の確率を1回の呼び出しで返す。失敗時は (0.5, 0.5)。"""
+class Selection(NamedTuple):
+    worth: float       # このユーザーが興味を持ちそうか
+    is_release: float  # 特定のソフトウェアのリリース・新機能・公式発表を扱う記事か
+    is_primary: float  # 公式の一次情報か
+
+
+def judge_selection(item: CollectedItem, worth_criteria: str, policy: str = "") -> Selection:
+    """興味・リリース情報か・一次情報かを1回の呼び出しで判定する。失敗時はすべて 0.5。"""
+    interest = worth_criteria if not policy else f"{worth_criteria}\n\nこのユーザーの普段の好み:\n{policy}"
     try:
         response = _client().system_one(
             state=_article_state(item),
             questions={
-                "worth": Noul(instructions=worth_criteria),
+                "worth": Noul(instructions=interest),
+                "is_release": Noul(
+                    instructions=(
+                        "この記事は、特定のソフトウェア・サービスのリリース情報か。新バージョン・新機能・"
+                        "非推奨化・公式の発表を扱う記事なら yes（公式のリリースノートでも、第三者による解説・まとめでもよい）。"
+                        "設計・実装の解説、体験記、エッセイ、入門記事は no。"
+                    ),
+                ),
                 "is_primary": Noul(
                     instructions=(
                         "この記事は公式の一次情報か。プロジェクト・企業・標準化団体の公式ドキュメント、"
@@ -96,10 +111,11 @@ def judge_worth_and_primary(item: CollectedItem, worth_criteria: str) -> tuple[f
                 ),
             },
         )
-        return response.nouls["worth"].noul, response.nouls["is_primary"].noul
+        nouls = response.nouls
+        return Selection(nouls["worth"].noul, nouls["is_release"].noul, nouls["is_primary"].noul)
     except Exception as exc:
         print(f"[jev] ERR({exc}) | {item['title'][:60]}")
-        return NEUTRAL, NEUTRAL
+        return Selection(NEUTRAL, NEUTRAL, NEUTRAL)
 
 
 MAX_CHOICE_LABELS = 255
@@ -114,18 +130,18 @@ def build_group_choices(
 
     過去のグループは新しい順に渡し、Choice のラベル上限に収まる分だけ使う。
     """
-    choices: dict[str, dict | str] = {NEW_GROUP: "今日・過去のどの話題とも異なる新しい話題"}
+    choices: dict[str, dict | str] = {NEW_GROUP: "今日・過去のどのリリースとも異なる新しいリリース・発表"}
     for i, seed in enumerate(today_seeds):
         choices[f"g{i}"] = {
-            "relation": "今日の別の記事と同じ出来事、または同じ連載の別の回",
+            "relation": "今日の別の記事と同じリリース・発表",
             "title": seed.get("title", ""),
             "excerpt": (seed.get("body", "") or "")[:200],
         }
     max_past = max(0, (MAX_CHOICE_LABELS - len(choices)) // 2)
     for j, past in enumerate(past_groups[:max_past]):
         base = {"date": past["date"], "title": past["title"], "summary": (past.get("summary", "") or "")[:200]}
-        choices[f"same:p{j}"] = {"relation": "過去に掲載した話題と同じ（新しい情報はない）", **base}
-        choices[f"follow:p{j}"] = {"relation": "過去に掲載した話題の続報（新しい版・続編・追加の発表）", **base}
+        choices[f"same:p{j}"] = {"relation": "過去に掲載したリリースと同じ（新しい情報はない）", **base}
+        choices[f"follow:p{j}"] = {"relation": "過去に掲載したリリースの続報（RC から正式版、パッチ版、追加の発表）", **base}
     return choices
 
 
@@ -152,7 +168,7 @@ def judge_group(
 
 
 def judge_same_subject(item: CollectedItem, other: CollectedItem, grouping_criteria: str) -> float | None:
-    """2本の記事が同じ話題（同じ出来事・同じ連載）である確率を返す。失敗時は None。
+    """2本の記事が同じリリース・発表を扱っている確率を返す。失敗時は None。
 
     Choice は選択肢のどれかを選ぶ形なので、ふさわしいグループがないときに手近なグループを選ぶことがある。
     既存のグループに入れる前にこの1対1の判定で確かめる。
@@ -164,8 +180,9 @@ def judge_same_subject(item: CollectedItem, other: CollectedItem, grouping_crite
                 "same": Noul(
                     instructions=(
                         f"{grouping_criteria}\n\n"
-                        "記事 A と記事 B は同じ話題か。同じ出来事を扱っているか、同じ連載の別の回なら yes。"
-                        "テーマが近いだけ、同じ技術を使っているだけなら no。"
+                        "記事 A と記事 B は同じリリース・発表を扱っているか。"
+                        "同じソフトウェアの同じバージョン・同じ発表なら yes。"
+                        "同じソフトウェアでも別のバージョンや別の発表、テーマが近いだけなら no。"
                     ),
                 ),
             },

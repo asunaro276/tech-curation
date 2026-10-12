@@ -23,13 +23,14 @@ FEEDS_VAULT_PATH = "agent-config/feeds.md"
 
 import re as _re
 
-_FEED_LINE_RE = _re.compile(r"^-\s+(https?://\S+?)(?:\s+\[([^\]]+)\])?\s*$")
+_FEED_LINE_RE = _re.compile(r"^-\s+(https?://\S+?)(?:\s+\[([^\]]+)\])?(?:\s+\{max=(\d+)\})?\s*$")
 
 
-def _parse_feeds_md(text: str) -> list[tuple[str, str]]:
-    """feeds.md の ## アクティブ セクションを解析して (url, topic_hint) のリストを返す。
-    行末の [トピック名] がトピックヒント。省略時は空文字。"""
-    entries: list[tuple[str, str]] = []
+def _parse_feeds_md(text: str) -> list[tuple[str, str, int | None]]:
+    """feeds.md の ## アクティブ セクションを解析して (url, topic_hint, max_items) のリストを返す。
+    行末の [トピック名] がトピックヒント（省略時は空文字）、{max=N} がそのフィードから取り込む件数の上限
+    （省略時は None = 重みから決める既定値）。例: - https://example.com/feed [Go] {max=50}"""
+    entries: list[tuple[str, str, int | None]] = []
     in_active = False
     for line in text.splitlines():
         stripped = line.strip()
@@ -41,7 +42,7 @@ def _parse_feeds_md(text: str) -> list[tuple[str, str]]:
         if in_active:
             m = _FEED_LINE_RE.match(stripped)
             if m:
-                entries.append((m.group(1), m.group(2) or ""))
+                entries.append((m.group(1), m.group(2) or "", int(m.group(3)) if m.group(3) else None))
     return entries
 
 
@@ -129,7 +130,7 @@ def _fetch_feed(url: str, topic_hint: str = "") -> list[CollectedItem]:
     return [_entry_to_item(entry, label, hint) for entry in feed.entries]
 
 
-_DEFAULT_FEED_ENTRIES = [(url, "") for url in DEFAULT_FEEDS]
+_DEFAULT_FEED_ENTRIES = [(url, "", None) for url in DEFAULT_FEEDS]
 
 
 def rss_node(state: CollectState) -> CollectState:
@@ -149,8 +150,8 @@ def rss_node(state: CollectState) -> CollectState:
     items: list[CollectedItem] = []
     errors: list[str] = []
 
-    def fetch(entry: tuple[str, str]) -> tuple[list[CollectedItem], str | None]:
-        url, topic_hint = entry
+    def fetch(entry: tuple[str, str, int | None]) -> tuple[list[CollectedItem], str | None]:
+        url, topic_hint, _ = entry
         try:
             return _fetch_feed(url, topic_hint), None
         except Exception as exc:
@@ -160,13 +161,15 @@ def rss_node(state: CollectState) -> CollectState:
     with ThreadPoolExecutor(max_workers=MAX_FEED_WORKERS) as executor:
         results = list(executor.map(fetch, feed_entries))
 
-    for (url, _), (fetched, error) in zip(feed_entries, results):
+    for (url, _, max_items), (fetched, error) in zip(feed_entries, results):
         if error:
             errors.append(error)
             continue
-        source = _source_label(url)
-        weight = config.source_weights.get(source, 1.0)
-        per_feed = max(5, round(base_per_feed * weight))
+        if max_items is not None:
+            per_feed = max_items
+        else:
+            weight = config.source_weights.get(_source_label(url), 1.0)
+            per_feed = max(5, round(base_per_feed * weight))
         items.extend(fetched[:per_feed])
 
     return {"raw_items": items, "errors": errors}

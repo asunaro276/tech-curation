@@ -40,10 +40,14 @@ _CATCHALL_TOPIC = "トレンド"
 
 # select で同じ話題がまとめられて本数が減る分、上限本数より多めに候補を渡す
 CANDIDATE_MULTIPLIER = 3
+# トレンドは企業テックブログ・Publickey など出どころが多く、関連度（個別トピックとの関係）では
+# 良し悪しが測れない。興味の判定（select）に多めに候補を渡す
+TREND_CANDIDATE_MULTIPLIER = 6
 
 
 def candidate_slots(topic: str, base_slots: int, config) -> int:
-    return max(base_slots, config.quota_for(topic) * CANDIDATE_MULTIPLIER)
+    multiplier = TREND_CANDIDATE_MULTIPLIER if topic == _CATCHALL_TOPIC else CANDIDATE_MULTIPLIER
+    return max(base_slots, config.quota_for(topic) * multiplier)
 
 
 def _assign_topic(item: CollectedItem, topics: list[str]) -> str | None:
@@ -180,8 +184,8 @@ def merge_filter_node(state: CollectState) -> CollectState:
         if topic and topic in topic_buckets and topic != TREND_TOPIC:
             topic_buckets[topic].append(item)
         elif TREND_TOPIC in topic_buckets:
-            # Zenn・Qiita トレンド記事のみトレンドバケットへ（GitHub リポジトリは除外）
-            if (not topic or topic == TREND_TOPIC) and item.get("source", "") in ("zenn", "qiita", "codezine"):
+            # GitHub のリポジトリ以外（Zenn・Qiita・企業テックブログ・ニュースサイトなど）をトレンドへ
+            if (not topic or topic == TREND_TOPIC) and item.get("source", "") != "github":
                 topic_buckets[TREND_TOPIC].append({**item, "topic": TREND_TOPIC})
 
     filtered: list[CollectedItem] = []
