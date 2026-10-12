@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from tech_curation.collect.state import CollectState
@@ -62,9 +63,10 @@ def plan_node(state: CollectState) -> CollectState:
     policy_path = vault_root / POLICY_VAULT_PATH
     policy = policy_path.read_text(encoding="utf-8") if policy_path.exists() else ""
 
-    queries: dict[str, list[str]] = {}
-    for topic in topics:
-        queries[topic] = _generate_queries(topic, config.query_gen_prompt, policy)
+    # トピックごとに独立した LLM 呼び出しなので同時に実行する
+    with ThreadPoolExecutor(max_workers=max(len(topics), 1)) as executor:
+        results = list(executor.map(lambda t: _generate_queries(t, config.query_gen_prompt, policy), topics))
+    queries: dict[str, list[str]] = dict(zip(topics, results))
 
     return {
         "topics": topics,
