@@ -66,10 +66,15 @@ Lambda 起動時に `setup_ob_credentials` が読み出し、環境変数に設�
 # 既存の値を取り出して typesafe_api_key を追加し、上書きする
 aws ssm get-parameter --name /tech-curation/ob-credentials --with-decryption \
   --query Parameter.Value --output text \
-  | jq --arg key "<TypeSafe の API キー>" '. + {typesafe_api_key: $key}' > /tmp/ob-credentials.json
+  | TS_KEY="<TypeSafe の API キー>" python3 -c 'import json,os,sys; d=json.load(sys.stdin); d["typesafe_api_key"]=os.environ["TS_KEY"]; print(json.dumps(d))' \
+  > /tmp/ob-credentials.json
 aws ssm put-parameter --name /tech-curation/ob-credentials --type SecureString \
   --value "file:///tmp/ob-credentials.json" --overwrite
 rm /tmp/ob-credentials.json
+
+# 登録されたキー名だけを確認する（値は表示しない）
+aws ssm get-parameter --name /tech-curation/ob-credentials --with-decryption \
+  --query Parameter.Value --output text | python3 -c 'import json,sys; print(sorted(json.load(sys.stdin)))'
 ```
 
 `typesafe_api_key` が未設定でも収集は止まりませんが、Jev の判定がすべて失敗扱いになり、全記事の関連度・価値が中立値 0.5 として選定され、話題のグループ分けも行われません（ログに `[jev] ERR(...)` が出ます）。
