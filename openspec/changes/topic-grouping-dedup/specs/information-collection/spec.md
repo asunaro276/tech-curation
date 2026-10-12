@@ -39,3 +39,27 @@
 #### Scenario: Unmatched article goes to trend
 - **WHEN** 判定モデルがどの個別トピックにも当てはまらないと判定する
 - **THEN** そのアイテムは「トレンド」に割り当てられる
+
+## ADDED Requirements
+
+### Requirement: Per-feed item limit
+システムは `feeds.md` のフィード行の末尾に `{max=N}` が指定されている場合、そのフィードから取り込む記事を最新の N 件までとしなければならない（SHALL）。指定がないフィードは、フィード数とソースの重みから決まる既定の件数とする。
+
+#### Scenario: Aggregator feed with explicit limit
+- **WHEN** `feeds.md` に `- https://yamadashy.github.io/tech-blog-rss-feed/feeds/rss.xml {max=50}` と書かれている
+- **THEN** そのフィードからは最新の 50 件までが取り込まれる
+
+#### Scenario: Feed without limit
+- **WHEN** `feeds.md` に `- https://rubyweekly.com/rss/ [Ruby]` と書かれている
+- **THEN** そのフィードからは既定の件数が取り込まれる
+
+### Requirement: Trend candidates from any non-repository source
+システムは「トレンド」に割り当てられた記事のうち、GitHub のリポジトリ以外のすべての記事をトレンドの候補としなければならない（SHALL）。トレンドの候補は他のトピックより多めに選定へ渡す。
+
+#### Scenario: Company tech blog article becomes a trend candidate
+- **WHEN** 企業テックブログのまとめフィードの記事が「トレンド」に割り当てられる
+- **THEN** その記事はトレンドの候補になる
+
+#### Scenario: GitHub repository is not a trend candidate
+- **WHEN** GitHub のリポジトリが「トレンド」に割り当てられる
+- **THEN** そのリポジトリはトレンドの候補にならない

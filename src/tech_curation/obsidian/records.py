@@ -20,7 +20,7 @@ class PastGroup(TypedDict):
 
 
 class PastHistory(TypedDict):
-    groups_by_topic: dict[str, list[PastGroup]]  # 新しい日付順
+    groups_by_topic: dict[str, list[PastGroup]]  # リリース情報のグループだけ。新しい日付順
     urls: set[str]
 
 
@@ -47,6 +47,7 @@ def build_daily_record(date_str: str, numbered: list[tuple[int, str, CollectedIt
             "title": item.get("title", ""),
             "summary": item.get("summary", ""),
             "follow_of": item.get("follow_of"),
+            "release": item.get("is_release", 0.0) >= 0.5,
             "articles": [_article_entry(item)] + [_article_entry(r) for r in item.get("related", [])],
         })
     return {"date": date_str, "groups": groups}
@@ -78,6 +79,12 @@ def load_past_history(vault_root: Path, today: date, days: int) -> PastHistory:
         for group in record["groups"]:
             if not isinstance(group, dict):
                 continue
+            for article in group.get("articles", []):
+                if isinstance(article, dict) and article.get("url"):
+                    urls.add(article["url"])
+            # 同じ話題・続報の判定はリリース情報だけで行う（release がない古い記録は対象に含める）
+            if not group.get("release", True):
+                continue
             topic = group.get("topic", "")
             groups_by_topic.setdefault(topic, []).append(PastGroup(
                 date=date_str,
@@ -86,7 +93,4 @@ def load_past_history(vault_root: Path, today: date, days: int) -> PastHistory:
                 title=group.get("title", ""),
                 summary=group.get("summary", ""),
             ))
-            for article in group.get("articles", []):
-                if isinstance(article, dict) and article.get("url"):
-                    urls.add(article["url"])
     return PastHistory(groups_by_topic=groups_by_topic, urls=urls)

@@ -8,7 +8,7 @@ from tech_curation.obsidian.records import build_daily_record, load_past_history
 
 
 def _item(title: str, url: str, **extra) -> dict:
-    return {"title": title, "url": url, "source": "zenn", "summary": f"{title} の要約", **extra}
+    return {"title": title, "url": url, "source": "zenn", "summary": f"{title} の要約", "is_release": 0.9, **extra}
 
 
 def _write(vault, date_str, record):
@@ -52,6 +52,17 @@ class TestLoadPastHistory:
         history = load_past_history(tmp_path, date(2026, 10, 7), 7)
         assert history["groups_by_topic"]["Ruby"][0]["no"] == 2
         assert history["urls"] == {"https://r"}
+
+    def test_only_release_groups_are_compared_but_all_urls_are_known(self, tmp_path):
+        record = build_daily_record("2026-10-06", [
+            (1, "Go", _item("Go 1.25 リリース", "https://rel", is_release=0.9)),
+            (2, "Go", _item("Go の設計の話", "https://trend", is_release=0.1)),
+        ])
+        assert [g["release"] for g in record["groups"]] == [True, False]
+        _write(tmp_path, "2026-10-06", record)
+        history = load_past_history(tmp_path, date(2026, 10, 7), 7)
+        assert [g["title"] for g in history["groups_by_topic"]["Go"]] == ["Go 1.25 リリース"]
+        assert history["urls"] == {"https://rel", "https://trend"}
 
     def test_no_records(self, tmp_path):
         history = load_past_history(tmp_path, date(2026, 10, 7), 7)

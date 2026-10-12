@@ -165,12 +165,15 @@ class TestSelectJev:
     EMPTY_HISTORY = {"groups_by_topic": {}, "urls": set()}
 
     def _run(self, items, worth, quotas=None, default_quota=2, group=lambda item, seeds, past, crit: "new",
-             history=None):
+             history=None, release=lambda item: 0.9):
         from tech_curation.collect import grouping
         from tech_curation.collect.nodes import select as sel
+        from tech_curation.jev import Selection
 
         config = AgentConfig(topic_quotas=quotas or {}, default_topic_quota=default_quota)
-        with patch.object(sel, "judge_worth_and_primary", side_effect=lambda item, crit: (worth(item, crit), 0.0)), \
+        judge = lambda item, crit, policy="": Selection(worth(item, crit), release(item), 0.0)
+        with patch.object(sel, "judge_selection", side_effect=judge), \
+                patch.object(sel, "_load_policy", return_value=""), \
                 patch.object(grouping, "judge_group", side_effect=lambda *a: (group(*a), 0.9)), \
                 patch.object(grouping, "judge_same_subject", return_value=1.0), \
                 patch.object(sel, "_load_history", return_value=history or self.EMPTY_HISTORY):
@@ -233,6 +236,33 @@ class TestSelectJev:
                            group=lambda item, seeds, past, crit: "same:p0")
         assert result == []
 
+    def test_trend_articles_are_never_grouped(self):
+        items = [_topic_item(f"t{i}", f"https://t{i}.com", topic="Claude") for i in range(3)]
+        called = []
+        result = self._run(items, lambda item, crit: 0.8, default_quota=5, release=lambda item: 0.1,
+                           group=lambda item, seeds, past, crit: called.append(item["title"]) or "g0")
+        assert len(result) == 3
+        assert all(r["related"] == [] for r in result)
+        assert called == []  # トレンド情報はグループ判定を呼ばない
+
+    def test_releases_and_trends_share_quota_by_worth(self):
+        items = [
+            _topic_item("rel-a", "https://a.com", topic="Go"),
+            _topic_item("rel-b", "https://b.com", topic="Go"),
+            _topic_item("trend", "https://c.com", topic="Go"),
+        ]
+        worths = {"rel-a": 0.6, "rel-b": 0.5, "trend": 0.9}
+        result = self._run(items, lambda item, crit: worths[item["title"]], quotas={"Go": 2},
+                           release=lambda item: 0.1 if item["title"] == "trend" else 0.9,
+                           group=lambda item, seeds, past, crit: "g0")
+        assert [r["title"] for r in result] == ["trend", "rel-a"]
+        assert [r["title"] for r in result[1]["related"]] == ["rel-b"]
+
+    def test_reported_url_dropped_for_trend_too(self):
+        items = [_topic_item("seen-trend", "https://seen.com", topic="Go")]
+        history = {"groups_by_topic": {}, "urls": {"https://seen.com"}}
+        assert self._run(items, lambda item, crit: 0.8, history=history, release=lambda item: 0.1) == []
+
     def test_all_judgments_fail(self):
         from tech_curation import jev
         from tech_curation.collect.nodes import select as sel
@@ -242,6 +272,7 @@ class TestSelectJev:
         ]
         config = AgentConfig(topic_quotas={"Go": 2, "Ruby": 1})
         with patch.object(jev, "_client", side_effect=RuntimeError("service down")), \
+                patch.object(sel, "_load_policy", return_value=""), \
                 patch.object(sel, "_load_history", return_value=self.EMPTY_HISTORY):
             result = sel.select_node({"config": config, "filtered_items": items})["filtered_items"]
         assert [i["title"] for i in result] == ["go0", "go1", "rb0"]
@@ -372,3 +403,63 @@ class TestParallelFetch:
 
         assert _timed("plan", lambda s: {"x": 1})({}) == {"x": 1}
         assert "[time] plan " in capsys.readouterr().out
+
+
+class TestFeedsMd:
+    def test_parses_hint_and_max(self):
+        from tech_curation.collect.nodes.rss import _parse_feeds_md
+
+        md = (
+            "## アクティブ\n"
+            "- https://rubyweekly.com/rss/ [Ruby]\n"
+            "- https://yamadashy.github.io/tech-blog-rss-feed/feeds/rss.xml {max=50}\n"
+            "- https://zenn.dev/topics/go/feed [Go] {max=20}\n"
+            "- https://www.publickey1.jp/atom.xml\n"
+            "## 停止中\n- https://stopped.example/feed\n"
+        )
+        assert _parse_feeds_md(md) == [
+            ("https://rubyweekly.com/rss/", "Ruby", None),
+            ("https://yamadashy.github.io/tech-blog-rss-feed/feeds/rss.xml", "", 50),
+            ("https://zenn.dev/topics/go/feed", "Go", 20),
+            ("https://www.publickey1.jp/atom.xml", "", None),
+        ]
+
+    def test_max_overrides_weighted_default(self, tmp_path, monkeypatch):
+        from tech_curation.collect.nodes import rss
+
+        feeds = tmp_path / "agent-config" / "feeds.md"
+        feeds.parent.mkdir(parents=True)
+        feeds.write_text("## アクティブ\n- https://agg.example/feed {max=50}\n- https://small.example/feed\n")
+        monkeypatch.setenv("VAULT_ROOT", str(tmp_path))
+        many = lambda url, hint="": [_topic_item(f"{url}#{i}", f"{url}#{i}") for i in range(80)]
+        with patch.object(rss, "_fetch_feed", side_effect=many):
+            items = rss.rss_node({"config": AgentConfig()})["raw_items"]
+        counts = {u: sum(i["url"].startswith(u) for i in items) for u in ("https://agg", "https://small")}
+        assert counts["https://agg"] == 50
+        assert counts["https://small"] == 18  # 既定: フィードが少ないので基本30件 × rss の重み 0.6
+
+
+class TestTrendBucket:
+    def _run(self, items, judged):
+        from tech_curation.collect.nodes import merge_filter as mf
+
+        state = {"config": AgentConfig(), "raw_items": items, "topics": ["Go", "トレンド"]}
+        with patch.object(mf, "judge_relevance_and_topic", side_effect=lambda item, t, c: judged[item["title"]]):
+            return mf.merge_filter_node(state)["filtered_items"]
+
+    def test_non_github_sources_enter_trend(self):
+        items = [
+            _topic_item("企業ブログ", "https://tech.example.com/a", source="rss"),
+            _topic_item("Publickey", "https://www.publickey1.jp/a", source="rss"),
+            _topic_item("owner/repo", "https://github.com/owner/repo", source="github"),
+        ]
+        judged = {t["title"]: (0.05, "トレンド") for t in items}
+        result = self._run(items, judged)
+        assert sorted(i["title"] for i in result) == ["Publickey", "企業ブログ"]
+
+    def test_trend_gets_wider_candidate_slots(self):
+        from tech_curation.collect.nodes.merge_filter import candidate_slots
+
+        config = AgentConfig(topic_quotas={"トレンド": 5, "Go": 1})
+        assert candidate_slots("トレンド", 4, config) == 30
+        assert candidate_slots("Go", 4, config) == 4

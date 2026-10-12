@@ -63,19 +63,28 @@ class TestJudgeRelevanceAndTopic:
             assert jev.judge_relevance_and_topic(_item(), ["Go"], RUBRIC) == (jev.NEUTRAL, None)
 
 
-class TestJudgeWorthAndPrimary:
+class TestJudgeSelection:
     def test_success(self):
         client = MagicMock()
         resp = MagicMock()
-        resp.nouls = {"worth": MagicMock(noul=0.83), "is_primary": MagicMock(noul=0.1)}
+        resp.nouls = {"worth": MagicMock(noul=0.83), "is_release": MagicMock(noul=0.7), "is_primary": MagicMock(noul=0.1)}
         client.system_one.return_value = resp
         with patch.object(jev, "_client", return_value=client):
-            assert jev.judge_worth_and_primary(_item(), "要約する価値があるか") == (0.83, 0.1)
-        assert set(client.system_one.call_args.kwargs["questions"]) == {"worth", "is_primary"}
+            assert jev.judge_selection(_item(), "興味があるか", "Rails の実務記事が好き") == (0.83, 0.7, 0.1)
+        questions = client.system_one.call_args.kwargs["questions"]
+        assert set(questions) == {"worth", "is_release", "is_primary"}
+        assert "Rails の実務記事が好き" in questions["worth"].instructions
+
+    def test_without_policy(self):
+        client = MagicMock()
+        client.system_one.return_value.nouls = {k: MagicMock(noul=0.5) for k in ("worth", "is_release", "is_primary")}
+        with patch.object(jev, "_client", return_value=client):
+            jev.judge_selection(_item(), "興味があるか")
+        assert client.system_one.call_args.kwargs["questions"]["worth"].instructions == "興味があるか"
 
     def test_failure_returns_neutral(self):
         with patch.object(jev, "_client", side_effect=RuntimeError("no key")):
-            assert jev.judge_worth_and_primary(_item(), "要約する価値があるか") == (jev.NEUTRAL, jev.NEUTRAL)
+            assert jev.judge_selection(_item(), "興味があるか") == (jev.NEUTRAL, jev.NEUTRAL, jev.NEUTRAL)
 
 
 class TestGroupChoices:

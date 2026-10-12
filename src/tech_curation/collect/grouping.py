@@ -1,4 +1,7 @@
-"""Greedy topic grouping: merges same-subject articles and checks them against past reports."""
+"""Release grouping: merges articles about the same release and checks them against past reports.
+
+トレンド情報（リリース以外）はまとめず、1本ずつのグループとして扱う。
+"""
 from __future__ import annotations
 
 import re
@@ -27,13 +30,37 @@ def is_primary(item: CollectedItem) -> bool:
     return item.get("source", "") == "github" or item.get("is_primary", 0.0) >= 0.5
 
 
+def is_release(item: CollectedItem) -> bool:
+    return item.get("is_release", 0.0) >= 0.5
+
+
+def group_candidates(
+    items: list[CollectedItem],
+    past_groups: list[PastGroup],
+    past_urls: set[str],
+    grouping_criteria: str,
+) -> list[Group]:
+    """1トピック分の候補を、リリース情報はリリースごとにまとめ、トレンド情報は1本ずつのグループにする。
+    過去のレポートに載った URL の記事はどちらも除外する。"""
+    fresh: list[CollectedItem] = []
+    for item in items:
+        if item["url"] in past_urls:
+            print(f"  [group] drop (reported URL) {item['title'][:60]}")
+        else:
+            fresh.append(item)
+    releases = [i for i in fresh if is_release(i)]
+    trends = [i for i in fresh if not is_release(i)]
+    groups = group_topic(releases, past_groups, set(), grouping_criteria)
+    return groups + [Group(members=[i], follow_of=None) for i in trends]
+
+
 def group_topic(
     items: list[CollectedItem],
     past_groups: list[PastGroup],
     past_urls: set[str],
     grouping_criteria: str,
 ) -> list[Group]:
-    """1トピック分の記事を worth の降順に1本ずつ処理し、貪欲法でグループに分ける。"""
+    """リリース情報の記事を worth の降順に1本ずつ処理し、貪欲法で同じリリースごとにまとめる。"""
     groups: list[Group] = []
     for item in sorted(items, key=lambda x: x.get("worth", 0.0), reverse=True):
         title = item["title"][:60]
