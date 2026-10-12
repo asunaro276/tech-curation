@@ -51,7 +51,10 @@ def select_node(state: CollectState) -> CollectState:
         kept = reps[: config.quota_for(topic)]
         for rep in reps:
             label = "keep" if any(rep is k for k in kept) else "drop"
-            print(f"  [{label}] {topic} worth={rep.get('worth', 0.0):.2f} +{len(rep['related'])} {rep['title'][:60]}")
+            print(
+                f"  [{label}] {topic} worth={rep.get('worth', 0.0):.2f} primary={rep.get('is_primary', 0.0):.2f}"
+                f" +{len(rep['related'])} {rep['title'][:60]}"
+            )
         return kept
 
     topics = list(by_topic)

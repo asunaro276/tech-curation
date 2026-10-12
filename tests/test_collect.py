@@ -120,10 +120,24 @@ class TestMergeFilterJev:
         assert result[0]["topic"] == "Go"
         assert result[0]["relevance_score"] == 0.9
 
-    def test_feed_hint_takes_precedence(self):
-        items = [_topic_item("Go と Ruby の比較", "https://a.com", source="rss", topic="Ruby")]
+    def test_jev_topic_takes_precedence_over_feed_hint(self):
+        items = [_topic_item("Rails 8 へ上げる前に", "https://a.com", source="rss", topic="Ruby")]
         result = self._run(items, lambda item, topics, crit: (0.9, "Go"))
+        assert result[0]["topic"] == "Go"
+
+    def test_feed_hint_used_when_jev_fails(self):
+        items = [_topic_item("Go と Ruby の比較", "https://a.com", source="rss", topic="Ruby")]
+        result = self._run(items, lambda item, topics, crit: (0.5, None))
         assert result[0]["topic"] == "Ruby"
+
+    def test_trend_is_not_filtered_by_relevance(self):
+        items = [
+            _topic_item("trend", "https://t.com", source="zenn"),
+            _topic_item("go-low", "https://g.com", source="rss"),
+        ]
+        judged = {"trend": (0.05, "トレンド"), "go-low": (0.3, "Go")}
+        result = self._run(items, lambda item, topics, crit: judged[item["title"]])
+        assert [i["title"] for i in result] == ["trend"]
 
     def test_failure_falls_back_to_keyword_match_and_neutral(self):
         items = [_topic_item("Go 1.25 released", "https://a.com", source="rss")]
