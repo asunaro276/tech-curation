@@ -38,16 +38,33 @@ make apply
 `terraform apply` 完了後、ob login クレデンシャルを手動で投入します（Terraform 側は
 `lifecycle.ignore_changes = [value]` によりプレースホルダー値のまま管理対象外にしています）。
 
+JSON の形式（`src/tech_curation/obsidian/sync.py` の `setup_ob_credentials` が読む）:
+
+```json
+{
+  "auth_token": "<~/.config/obsidian-headless/auth_token の中身>",
+  "vault_name": "<Obsidian の vault 名>",
+  "vault_password": "",
+  "deepseek_api_key": "...",
+  "typesafe_api_key": "...",
+  "github_token": "...",
+  "api_token": "..."
+}
+```
+
+`vault_password` は E2E 暗号化 vault の場合のみ、`github_token`・`api_token` は任意です。
+各 API キーの用途は次の 3.5 を参照してください。
+
 ```bash
-# ob loginを実行してクレデンシャルを生成（初回のみ）
+# ob login を実行して auth_token を生成（初回のみ）
 ob login
 
-# Parameter Storeに登録
-aws ssm put-parameter \
-  --name /tech-curation/ob-credentials \
-  --type SecureString \
-  --value "$(cat ~/.config/obsidian-headless/credentials.json)" \
-  --overwrite
+# 上の形式で /tmp/ob-credentials.json を作ってから登録する（1行で実行）
+aws ssm put-parameter --name /tech-curation/ob-credentials --type SecureString --value "file:///tmp/ob-credentials.json" --overwrite
+rm /tmp/ob-credentials.json
+
+# 登録されたキー名だけを確認する（値は表示しない）
+aws ssm get-parameter --name /tech-curation/ob-credentials --with-decryption --query Parameter.Value --output text | python3 -c 'import json,sys; print(sorted(json.load(sys.stdin)))'
 ```
 
 ### 3.5. LLM / 判定モデルの API キー
