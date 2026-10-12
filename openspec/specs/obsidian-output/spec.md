@@ -1,4 +1,10 @@
-## ADDED Requirements
+# obsidian-output Specification
+
+## Purpose
+
+選定・要約した記事を Markdown の日次レポートとして生成し、Obsidian Sync 経由で vault に届ける。
+
+## Requirements
 
 ### Requirement: Per-item Markdown report generation
 システムはフィルタリング済みアイテムを1アイテム1セクション形式のMarkdownレポートとして生成しなければならない（SHALL）。各アイテムにはタイトル・ソース・日付・要約・HTMLコメント形式のフィードバック欄を含める。

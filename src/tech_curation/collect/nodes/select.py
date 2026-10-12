@@ -1,89 +1,64 @@
-"""Select node: LLM decides which fetched articles are worth summarizing."""
+"""Select node: Jev judges each article, groups same-subject articles, code keeps the top K groups per topic."""
 from __future__ import annotations
 
-import json
+import os
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
+from pathlib import Path
 
+from tech_curation.collect.grouping import group_topic, representative_of
 from tech_curation.collect.state import CollectedItem, CollectState
-from tech_curation.llm import chat
+from tech_curation.jev import judge_worth_and_primary
+from tech_curation.obsidian.records import PastHistory, load_past_history
 
-_PROMPT = """\
-あなたは技術キュレーターです。
-収集した記事の中から、読者にとって要約する価値がある記事を選んでください。
+MAX_WORKERS = 12
 
-## 選ぶ基準
-- 具体的な技術変更・新機能・実装例がある
-- リリースノートや breaking change 情報
-- 独自の洞察・比較・検証記事
-- 実際のコードやベンチマークを含む
 
-## 除外する基準（本当に問題がある場合のみ除外）
-- 内容がほぼ空・タイトルと本文が全く一致しない
-- 全く同一の話題の重複記事が複数ある場合は1本だけ残す
+def _vault_root() -> Path:
+    return Path(os.environ.get("VAULT_ROOT", str(Path.home() / "vault")))
 
-## トピック別の選ぶ本数（これを厳守すること）
-- Go: 1 本（最も価値ある1本だけ選ぶ）
-- TypeScript/JavaScript: 1〜2 本
-- Ruby: 1〜2 本
-- Ruby on Rails: 1〜2 本
-- Claude: 2〜3 本
-- vue: 1〜2 本
-- postgresql: 2〜3 本
-- トレンド: 3〜5 本（できるだけ多く選ぶ）
 
-選んだ記事のインデックス番号だけを JSON 配列で返してください。例: [0, 2, 5, 7]
-前置きや説明文は不要です。JSON のみ返してください。
-"""
+def _load_history(recency_days: int) -> PastHistory:
+    today = datetime.now(timezone.utc).date()  # レポートのファイル名と同じく UTC の日付
+    return load_past_history(_vault_root(), today, recency_days)
 
 
 def select_node(state: CollectState) -> CollectState:
+    config = state["config"]
     items: list[CollectedItem] = list(state.get("filtered_items", []))
     if not items:
         return {"filtered_items": []}
 
-    items_text = "\n\n".join(
-        f"[{i}] トピック: {item.get('topic', '未分類')} | ソース: {item.get('source', '')}\n"
-        f"タイトル: {item['title']}\n"
-        f"内容: {(item.get('body', '') or '')[:400]}"
-        for i, item in enumerate(items)
-    )
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        judged = list(executor.map(lambda item: judge_worth_and_primary(item, config.worth_criteria), items))
+    items = [{**item, "worth": worth, "is_primary": primary} for item, (worth, primary) in zip(items, judged)]
 
-    try:
-        raw = chat(
-            [{"role": "user", "content": f"{_PROMPT}\n\n## 記事一覧\n\n{items_text}"}],
-            max_tokens=256,
-        ).strip()
+    by_topic: dict[str, list[CollectedItem]] = {}
+    for item in items:
+        by_topic.setdefault(item.get("topic", "") or "未分類", []).append(item)
 
-        bracket_idx = raw.find("[")
-        if bracket_idx != -1:
-            raw = raw[bracket_idx:]
-            close_idx = raw.rfind("]")
-            if close_idx != -1:
-                raw = raw[: close_idx + 1]
+    history = _load_history(config.recency_days)
 
-        selected_indices_raw: list[int] = json.loads(raw)
-        kept: set[int] = {i for i in selected_indices_raw if 0 <= i < len(items)}
+    # グループの状態は前の判定に依存するのでトピック内は逐次、トピック間は並列に処理する
+    def process(topic: str) -> list[CollectedItem]:
+        groups = group_topic(
+            by_topic[topic],
+            history["groups_by_topic"].get(topic, []),
+            history["urls"],
+            config.grouping_criteria,
+        )
+        reps = sorted((representative_of(g) for g in groups), key=lambda r: r.get("worth", 0.0), reverse=True)
+        kept = reps[: config.quota_for(topic)]
+        for rep in reps:
+            label = "keep" if any(rep is k for k in kept) else "drop"
+            print(f"  [{label}] {topic} worth={rep.get('worth', 0.0):.2f} +{len(rep['related'])} {rep['title'][:60]}")
+        return kept
 
-        # 各トピックから最低1本をコードで保証
-        topic_to_indices: dict[str, list[int]] = {}
-        for i, item in enumerate(items):
-            t = item.get("topic", "") or "未分類"
-            topic_to_indices.setdefault(t, []).append(i)
+    topics = list(by_topic)
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        results = list(executor.map(process, topics))
 
-        for t, idxs in topic_to_indices.items():
-            if not any(i in kept for i in idxs):
-                # LLMが全削除したトピックは最高スコアの1本を強制追加
-                best = max(idxs, key=lambda i: items[i].get("relevance_score", 0.0))
-                kept.add(best)
-                print(f"  [force-keep] [{best}] {items[best]['title'][:60]} (topic={t})")
-
-        selected = [items[i] for i in sorted(kept)]
-
-        for i, item in enumerate(items):
-            label = "keep" if i in kept else "drop"
-            print(f"  [{label}] [{i}] {item['title'][:60]}")
-        print(f"[select] {len(items)} → {len(selected)} articles selected for summarization")
-
-        return {"filtered_items": selected}
-    except Exception as exc:
-        print(f"[select] ERR({exc}) — using all {len(items)} items")
-        return {"filtered_items": items}
+    selected = [rep for kept in results for rep in kept]
+    n_articles = sum(1 + len(rep["related"]) for rep in selected)
+    print(f"[select] {len(items)} articles → {len(selected)} groups ({n_articles} articles)")
+    return {"filtered_items": selected}

@@ -22,6 +22,7 @@ def _run_pipeline(note_path: str) -> None:
         note_path=note_path,
         note_content="",
         feedback_items=[],
+        duplicate_feedback=[],
         overall_feedback="",
         policy="",
         source_labels=[],

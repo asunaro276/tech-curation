@@ -43,6 +43,34 @@ Classify this content as exactly one of: code, comparison, trend.
 - trend: ecosystem trends, community surveys, adoption patterns
 Return only the single word.
 
+## relevance_criteria
+
+- 0: 関心トピックと無関係
+- 1: トピックの名前が出てくるだけで、技術的な内容はほとんどない
+- 2: トピックに関係する技術内容を一部含む
+- 3: トピックの技術内容が主題になっている
+- 4: トピックの中心的な技術内容（新機能・リリース・実装・検証）を具体的に扱っている
+
+## worth_criteria
+
+この記事は、技術者が要約を読む価値があるか。具体的な技術変更・新機能・実装例・リリースノート・breaking change・独自の比較や検証・コードやベンチマークを含む記事は yes。内容がほぼ空、タイトルと本文が一致しない、宣伝だけの記事は no。
+
+## grouping_criteria
+
+この記事は、選択肢のどの話題と同じか。同じ出来事を扱う記事は同じ話題とする（例: あるリリースの公式リリースノートと、その解説記事・まとめ記事）。同じライブラリでも別の機能や別の出来事を扱う記事は別の話題とする。過去に掲載した話題に新しい情報が加わったもの（RC から正式版、続編、追加の発表）は同じ話題ではなく続報とする。
+
+## topic_quotas
+
+- Go: 1
+- TypeScript/JavaScript: 2
+- Ruby: 2
+- Ruby on Rails: 2
+- Claude: 3
+- vue: 2
+- postgresql: 3
+- トレンド: 5
+- default: 2
+
 ## 改善履歴
 
 | date | reason |

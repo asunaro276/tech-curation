@@ -1,19 +1,22 @@
-"""Parses <!-- fb: relevance=N, comment=text --> from Markdown files."""
+"""Parses <!-- fb: relevance=N, dup=D, comment=text --> from Markdown files (dup is optional)."""
 from __future__ import annotations
 
 import re
 from typing import TypedDict
 
 _FB_RE = re.compile(
-    r"<!--\s*fb:\s*relevance=([^,]*),\s*comment=(.*?)\s*-->",
+    r"<!--\s*fb:\s*relevance=([^,]*),\s*(?:dup=([^,]*),\s*)?comment=(.*?)\s*-->",
     re.IGNORECASE | re.DOTALL,
 )
+
+DUP_PAST = "past"
 
 
 class FeedbackItem(TypedDict):
     item_index: int
     relevance: int | None
     comment: str
+    dup: str   # 同じ話題だった通し番号（"3"）、過去に読んだ（"past"）、なし（""）
 
 
 def parse_feedback(markdown: str) -> list[FeedbackItem]:
@@ -21,9 +24,10 @@ def parse_feedback(markdown: str) -> list[FeedbackItem]:
     results: list[FeedbackItem] = []
     for idx, match in enumerate(_FB_RE.finditer(markdown)):
         relevance_raw = match.group(1).strip()
-        comment_raw = match.group(2).strip()
+        dup_raw = (match.group(2) or "").strip().lstrip("#").lower()
+        comment_raw = match.group(3).strip()
 
-        if not relevance_raw and not comment_raw:
+        if not relevance_raw and not dup_raw and not comment_raw:
             continue
 
         relevance: int | None = None
@@ -38,6 +42,7 @@ def parse_feedback(markdown: str) -> list[FeedbackItem]:
                 item_index=idx,
                 relevance=relevance,
                 comment=comment_raw,
+                dup=dup_raw,
             )
         )
     return results

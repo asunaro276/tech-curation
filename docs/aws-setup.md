@@ -38,17 +38,63 @@ make apply
 `terraform apply` 完了後、ob login クレデンシャルを手動で投入します（Terraform 側は
 `lifecycle.ignore_changes = [value]` によりプレースホルダー値のまま管理対象外にしています）。
 
+JSON の形式（`src/tech_curation/obsidian/sync.py` の `setup_ob_credentials` が読む）:
+
+```json
+{
+  "auth_token": "<~/.config/obsidian-headless/auth_token の中身>",
+  "vault_name": "<Obsidian の vault 名>",
+  "vault_password": "",
+  "deepseek_api_key": "...",
+  "typesafe_api_key": "...",
+  "github_token": "...",
+  "api_token": "..."
+}
+```
+
+`vault_password` は E2E 暗号化 vault の場合のみ、`github_token`・`api_token` は任意です。
+各 API キーの用途は次の 3.5 を参照してください。
+
 ```bash
-# ob loginを実行してクレデンシャルを生成（初回のみ）
+# ob login を実行して auth_token を生成（初回のみ）
 ob login
 
-# Parameter Storeに登録
-aws ssm put-parameter \
-  --name /tech-curation/ob-credentials \
-  --type SecureString \
-  --value "$(cat ~/.config/obsidian-headless/credentials.json)" \
-  --overwrite
+# 上の形式で /tmp/ob-credentials.json を作ってから登録する（1行で実行）
+aws ssm put-parameter --name /tech-curation/ob-credentials --type SecureString --value "file:///tmp/ob-credentials.json" --overwrite
+rm /tmp/ob-credentials.json
+
+# 登録されたキー名だけを確認する（値は表示しない）
+aws ssm get-parameter --name /tech-curation/ob-credentials --with-decryption --query Parameter.Value --output text | python3 -c 'import json,sys; print(sorted(json.load(sys.stdin)))'
 ```
+
+### 3.5. LLM / 判定モデルの API キー
+
+API キーは手順 3 の Parameter Store（`/tech-curation/ob-credentials`）の JSON に一緒に入れます。
+Lambda 起動時に `setup_ob_credentials` が読み出し、環境変数に設定します。
+
+| JSON のキー | 設定される環境変数 | 用途 |
+|------------|------------------|------|
+| `deepseek_api_key` | `DEEPSEEK_API_KEY` | 要約・コンテンツ種別判定・レビュー・改善提案（DeepSeek） |
+| `typesafe_api_key` | `TYPESAFE_API_KEY` | 関連度・トピック判定、記事選定、話題のグループ分け（TypeSafe AI の Jev） |
+| `github_token` | `GITHUB_TOKEN` | GitHub 検索（任意） |
+| `api_token` | `API_TOKEN` | フィードバック送信 API の認証（任意） |
+
+```bash
+# 既存の値を取り出して typesafe_api_key を追加し、上書きする
+aws ssm get-parameter --name /tech-curation/ob-credentials --with-decryption \
+  --query Parameter.Value --output text \
+  | TS_KEY="<TypeSafe の API キー>" python3 -c 'import json,os,sys; d=json.load(sys.stdin); d["typesafe_api_key"]=os.environ["TS_KEY"]; print(json.dumps(d))' \
+  > /tmp/ob-credentials.json
+aws ssm put-parameter --name /tech-curation/ob-credentials --type SecureString \
+  --value "file:///tmp/ob-credentials.json" --overwrite
+rm /tmp/ob-credentials.json
+
+# 登録されたキー名だけを確認する（値は表示しない）
+aws ssm get-parameter --name /tech-curation/ob-credentials --with-decryption \
+  --query Parameter.Value --output text | python3 -c 'import json,sys; print(sorted(json.load(sys.stdin)))'
+```
+
+`typesafe_api_key` が未設定でも収集は止まりませんが、Jev の判定がすべて失敗扱いになり、全記事の関連度・価値が中立値 0.5 として選定され、話題のグループ分けも行われません（ログに `[jev] ERR(...)` が出ます）。
 
 ### 4. コンテナイメージのビルドとデプロイ
 
