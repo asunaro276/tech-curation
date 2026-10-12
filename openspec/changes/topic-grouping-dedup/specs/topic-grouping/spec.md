@@ -7,7 +7,7 @@
 ## ADDED Requirements
 
 ### Requirement: Greedy topic grouping
-システムはトピックごとに候補記事を worth 確率の降順に1本ずつ処理し、判定モデル（Jev）の選択式判定で「新しいグループ」か「既存のどのグループと同じ話題か」を決めなければならない（SHALL）。一度決めた所属は後から変更しない。同じ出来事を扱う記事（リリースノートとその解説・まとめ記事など）は同じ話題とみなす。
+システムはトピックごとに候補記事を worth 確率の降順に1本ずつ処理し、判定モデル（Jev）の選択式判定で「新しいグループ」か「既存のどのグループと同じ話題か」を決めなければならない（SHALL）。一度決めた所属は後から変更しない。同じ出来事（特定のリリース・発表・不具合など）を扱う記事と、同じ連載の別の回は同じ話題とみなす。テーマが近いだけの記事は同じ話題とみなさない。
 
 #### Scenario: Release note and explainer are grouped
 - **WHEN** Go の候補に「Go 1.25 Release Notes」（公式）と「Go 1.25 の新機能まとめ」（Zenn）がある
@@ -15,6 +15,14 @@
 
 #### Scenario: Different subjects stay separate
 - **WHEN** Go の候補に「Go 1.25 の新機能まとめ」と「sqlc で型安全な SQL」がある
+- **THEN** 2本は別々のグループになる
+
+#### Scenario: Series episodes are grouped
+- **WHEN** 候補に「35日でフロントエンドの基礎を完全に理解する #4」と「同 #5」がある
+- **THEN** 2本は同じグループに入る
+
+#### Scenario: Theme-only similarity stays separate
+- **WHEN** 候補に「AI時代のエンジニア技能維持を航空業界に学ぶ」と「若手エンジニアに必要な『AIを使う力』」がある
 - **THEN** 2本は別々のグループになる
 
 #### Scenario: First article needs no judgment
@@ -51,7 +59,7 @@
 - **THEN** 「Go 1.25 正式リリース」は続報として残り、前日のレポートと「Go 1.25 RC」のグループへの参照を持つ
 
 ### Requirement: Representative selection
-システムは各グループの代表記事を、一次情報である記事、日本語の記事、worth 確率の高い記事の優先順で選ばなければならない（SHALL）。一次情報かどうかは判定モデルで判定し、日本語かどうかは本文・タイトルに仮名が含まれるかで判定する。
+システムは各グループの代表記事を、一次情報である記事、日本語の記事、worth 確率の高い記事の優先順で選ばなければならない（SHALL）。一次情報は公式のドキュメント・ブログ・リリースノート・アナウンスを指し、個人の解説記事・体験記・まとめ記事は含めない。一次情報かどうかは判定モデルで判定し、日本語かどうかは本文・タイトルに仮名が含まれるかで判定する。
 
 #### Scenario: Primary source wins over higher worth
 - **WHEN** グループに公式リリースノート（一次情報・英語・worth 0.80）と Zenn の解説（二次情報・日本語・worth 0.91）がある

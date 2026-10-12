@@ -126,13 +126,20 @@ def _filter_by_date(items: list[CollectedItem], recency_days: int) -> list[Colle
 
 
 def _resolve_topic(item: CollectedItem, judged: str | None, topics: list[str]) -> str:
-    """フィードの topic ヒント → Jev の判定 → キーワードマッチ（Jev 失敗時）の順で決める。"""
+    """Jev の判定 → フィードの topic ヒント → キーワードマッチの順で決める（後ろ2つは Jev 失敗時の予備）。"""
+    if judged and judged in topics:
+        return judged
     hint = item.get("topic", "")
     if hint and hint in topics:
         return hint
-    if judged and judged in topics:
-        return judged
     return _assign_topic(item, topics) or ""
+
+
+def _passes_threshold(item: CollectedItem, threshold: float) -> bool:
+    # トレンドは「どの個別トピックにも当てはまらない」記事なので、関連度は低くて当然。閾値を適用しない
+    if item.get("topic", "") in ("", _CATCHALL_TOPIC):
+        return True
+    return item["relevance_score"] >= threshold
 
 
 def merge_filter_node(state: CollectState) -> CollectState:
@@ -159,7 +166,7 @@ def merge_filter_node(state: CollectState) -> CollectState:
             assigned = _resolve_topic(items[i], judged_topic, topics)
             scored[i] = {**items[i], "relevance_score": score, "topic": assigned}
 
-    passing = [i for i in scored if i["relevance_score"] >= config.filter_threshold]
+    passing = [i for i in scored if _passes_threshold(i, config.filter_threshold)]
 
     # トピック別クォータ: 各トピックから均等に枠を確保する
     n_topics = max(len(topics), 1)

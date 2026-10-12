@@ -88,7 +88,11 @@ def judge_worth_and_primary(item: CollectedItem, worth_criteria: str) -> tuple[f
             questions={
                 "worth": Noul(instructions=worth_criteria),
                 "is_primary": Noul(
-                    instructions="この記事は一次情報か（公式ドキュメント・公式ブログ・リリースノート・作者本人による発表）",
+                    instructions=(
+                        "この記事は公式の一次情報か。プロジェクト・企業・標準化団体の公式ドキュメント、"
+                        "公式ブログ、リリースノート、公式アナウンスなら yes。"
+                        "個人や第三者による解説記事・体験記・検証記事・まとめ記事は、技術的に正確でも no。"
+                    ),
                 ),
             },
         )
@@ -113,7 +117,7 @@ def build_group_choices(
     choices: dict[str, dict | str] = {NEW_GROUP: "今日・過去のどの話題とも異なる新しい話題"}
     for i, seed in enumerate(today_seeds):
         choices[f"g{i}"] = {
-            "relation": "今日の別の記事と同じ話題",
+            "relation": "今日の別の記事と同じ出来事、または同じ連載の別の回",
             "title": seed.get("title", ""),
             "excerpt": (seed.get("body", "") or "")[:200],
         }
