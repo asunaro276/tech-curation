@@ -134,18 +134,43 @@ def judge_group(
     today_seeds: list[CollectedItem],
     past_groups: list[dict],
     grouping_criteria: str,
-) -> str | None:
-    """記事がどのグループに属するかのラベルを返す。失敗時は None。"""
+) -> tuple[str, float] | None:
+    """記事がどのグループに属するかのラベルと確信度を返す。失敗時は None。"""
     choices = build_group_choices(today_seeds, past_groups)
     try:
         response = _client().system_one(
             state=_article_state(item),
             questions={"group": Choice(instructions=grouping_criteria, criteria=choices)},
         )
-        label = response.choices["group"].choice
-        if label not in choices:
-            raise ValueError(f"unknown label {label!r}")
-        return label
+        answer = response.choices["group"]
+        if answer.choice not in choices:
+            raise ValueError(f"unknown label {answer.choice!r}")
+        return answer.choice, answer.confidence
     except Exception as exc:
         print(f"[jev] group ERR({exc}) | {item['title'][:60]}")
+        return None
+
+
+def judge_same_subject(item: CollectedItem, other: CollectedItem, grouping_criteria: str) -> float | None:
+    """2本の記事が同じ話題（同じ出来事・同じ連載）である確率を返す。失敗時は None。
+
+    Choice は選択肢のどれかを選ぶ形なので、ふさわしいグループがないときに手近なグループを選ぶことがある。
+    既存のグループに入れる前にこの1対1の判定で確かめる。
+    """
+    try:
+        response = _client().system_one(
+            state={"article_a": _article_state(item), "article_b": _article_state(other)},
+            questions={
+                "same": Noul(
+                    instructions=(
+                        f"{grouping_criteria}\n\n"
+                        "記事 A と記事 B は同じ話題か。同じ出来事を扱っているか、同じ連載の別の回なら yes。"
+                        "テーマが近いだけ、同じ技術を使っているだけなら no。"
+                    ),
+                ),
+            },
+        )
+        return response.nouls["same"].noul
+    except Exception as exc:
+        print(f"[jev] same ERR({exc}) | {item['title'][:60]}")
         return None

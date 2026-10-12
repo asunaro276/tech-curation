@@ -92,11 +92,11 @@ class TestGroupChoices:
         assert len(choices) <= jev.MAX_CHOICE_LABELS
         assert "same:p0" in choices  # 新しいものから残る
 
-    def test_judge_group_returns_label(self):
+    def test_judge_group_returns_label_and_confidence(self):
         client = MagicMock()
-        client.system_one.return_value.choices = {"group": MagicMock(choice="g0")}
+        client.system_one.return_value.choices = {"group": MagicMock(choice="g0", confidence=0.7)}
         with patch.object(jev, "_client", return_value=client):
-            assert jev.judge_group(_item(), [_item("seed")], [], "基準") == "g0"
+            assert jev.judge_group(_item(), [_item("seed")], [], "基準") == ("g0", 0.7)
 
     def test_judge_group_unknown_label_is_failure(self):
         client = MagicMock()
@@ -107,3 +107,19 @@ class TestGroupChoices:
     def test_judge_group_failure(self):
         with patch.object(jev, "_client", side_effect=RuntimeError("down")):
             assert jev.judge_group(_item(), [], [], "基準") is None
+
+
+class TestJudgeSameSubject:
+    def test_returns_probability_with_both_articles(self):
+        client = MagicMock()
+        client.system_one.return_value.nouls = {"same": MagicMock(noul=0.92)}
+        with patch.object(jev, "_client", return_value=client):
+            assert jev.judge_same_subject(_item("35日で #5"), _item("35日で #4"), "基準") == 0.92
+        state = client.system_one.call_args.kwargs["state"]
+        assert state["article_a"]["title"] == "35日で #5"
+        assert state["article_b"]["title"] == "35日で #4"
+        assert "基準" in client.system_one.call_args.kwargs["questions"]["same"].instructions
+
+    def test_failure_returns_none(self):
+        with patch.object(jev, "_client", side_effect=RuntimeError("down")):
+            assert jev.judge_same_subject(_item(), _item(), "基準") is None

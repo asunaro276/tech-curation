@@ -3,10 +3,12 @@ from __future__ import annotations
 
 import os
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
 import feedparser
+import httpx
 
 from tech_curation.collect.state import CollectedItem, CollectState
 
@@ -112,10 +114,18 @@ def _entry_to_item(entry, source_label: str, topic_hint: str = "") -> CollectedI
     )
 
 
+FEED_TIMEOUT = 15.0  # 秒。応答の遅いフィード1つに全体が引きずられないようにする
+MAX_FEED_WORKERS = 8
+_USER_AGENT = "Mozilla/5.0 (compatible; tech-curation/0.1; +feedparser)"
+
+
 def _fetch_feed(url: str, topic_hint: str = "") -> list[CollectedItem]:
     label = _source_label(url)
     hint = topic_hint or _feed_topic_hint_from_url(url)
-    feed = feedparser.parse(url)
+    # feedparser.parse(url) はタイムアウトを指定できないので、取得は httpx で行う
+    response = httpx.get(url, timeout=FEED_TIMEOUT, follow_redirects=True, headers={"User-Agent": _USER_AGENT})
+    response.raise_for_status()
+    feed = feedparser.parse(response.content)
     return [_entry_to_item(entry, label, hint) for entry in feed.entries]
 
 
@@ -139,14 +149,24 @@ def rss_node(state: CollectState) -> CollectState:
     items: list[CollectedItem] = []
     errors: list[str] = []
 
-    for url, topic_hint in feed_entries:
+    def fetch(entry: tuple[str, str]) -> tuple[list[CollectedItem], str | None]:
+        url, topic_hint = entry
         try:
-            fetched = _fetch_feed(url, topic_hint)
-            source = _source_label(url)
-            weight = config.source_weights.get(source, 1.0)
-            per_feed = max(5, round(base_per_feed * weight))
-            items.extend(fetched[:per_feed])
+            return _fetch_feed(url, topic_hint), None
         except Exception as exc:
-            errors.append(f"rss:{url}:{exc}")
+            return [], f"rss:{url}:{exc}"
+
+    # フィードの順序は保ったまま、取得だけ同時に行う
+    with ThreadPoolExecutor(max_workers=MAX_FEED_WORKERS) as executor:
+        results = list(executor.map(fetch, feed_entries))
+
+    for (url, _), (fetched, error) in zip(feed_entries, results):
+        if error:
+            errors.append(error)
+            continue
+        source = _source_label(url)
+        weight = config.source_weights.get(source, 1.0)
+        per_feed = max(5, round(base_per_feed * weight))
+        items.extend(fetched[:per_feed])
 
     return {"raw_items": items, "errors": errors}

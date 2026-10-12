@@ -171,7 +171,8 @@ class TestSelectJev:
 
         config = AgentConfig(topic_quotas=quotas or {}, default_topic_quota=default_quota)
         with patch.object(sel, "judge_worth_and_primary", side_effect=lambda item, crit: (worth(item, crit), 0.0)), \
-                patch.object(grouping, "judge_group", side_effect=group), \
+                patch.object(grouping, "judge_group", side_effect=lambda *a: (group(*a), 0.9)), \
+                patch.object(grouping, "judge_same_subject", return_value=1.0), \
                 patch.object(sel, "_load_history", return_value=history or self.EMPTY_HISTORY):
             return sel.select_node({"config": config, "filtered_items": items})["filtered_items"]
 
@@ -316,3 +317,58 @@ class TestGroupSummary:
         assert result[0]["related"] == state["formatted_items"][0]["related"]
         sent = chat.call_args.args[0][0]["content"]
         assert "改善指示: 短く" in sent and "## 関連記事 2" in sent
+
+
+RSS_XML = b"""<?xml version="1.0"?><rss version="2.0"><channel><title>t</title>
+<item><title>Go 1.25 released</title><link>https://go.dev/blog/go1.25</link><description>d</description></item>
+</channel></rss>"""
+
+
+class TestParallelFetch:
+    def test_fetch_feed_uses_timeout_and_parses(self):
+        import httpx
+
+        from tech_curation.collect.nodes import rss
+
+        def fake_get(url, **kwargs):
+            assert kwargs["timeout"] == rss.FEED_TIMEOUT
+            return httpx.Response(200, content=RSS_XML, request=httpx.Request("GET", url))
+
+        with patch.object(rss.httpx, "get", side_effect=fake_get):
+            items = rss._fetch_feed("https://zenn.dev/topics/go/feed")
+        assert [(i["title"], i["source"], i["topic"]) for i in items] == [("Go 1.25 released", "zenn", "Go")]
+
+    def test_rss_node_keeps_feed_order_and_records_errors(self, tmp_path, monkeypatch):
+        from tech_curation.collect.nodes import rss
+
+        feeds = tmp_path / "agent-config" / "feeds.md"
+        feeds.parent.mkdir(parents=True)
+        feeds.write_text("## アクティブ\n- https://a.example/feed\n- https://slow.example/feed\n- https://b.example/feed\n")
+        monkeypatch.setenv("VAULT_ROOT", str(tmp_path))
+
+        def fake_fetch(url, hint=""):
+            if "slow" in url:
+                raise TimeoutError("timed out")
+            return [_topic_item(url, url)]
+
+        with patch.object(rss, "_fetch_feed", side_effect=fake_fetch):
+            result = rss.rss_node({"config": AgentConfig()})
+        assert [i["url"] for i in result["raw_items"]] == ["https://a.example/feed", "https://b.example/feed"]
+        assert result["errors"] == ["rss:https://slow.example/feed:timed out"]
+
+    def test_plan_generates_queries_per_topic(self, tmp_path, monkeypatch):
+        from tech_curation.collect.nodes import plan
+
+        topics = tmp_path / "agent-config" / "topics.md"
+        topics.parent.mkdir(parents=True)
+        topics.write_text("## アクティブ\n- Go\n- Ruby\n- vue\n")
+        monkeypatch.setenv("VAULT_ROOT", str(tmp_path))
+        with patch.object(plan, "_generate_queries", side_effect=lambda t, p, pol="": [f"{t} q"]):
+            result = plan.plan_node({"config": AgentConfig(), "topics": []})
+        assert result["queries"] == {"Go": ["Go q"], "Ruby": ["Ruby q"], "vue": ["vue q"]}
+
+    def test_timed_node_logs_duration(self, capsys):
+        from tech_curation.collect.graph import _timed
+
+        assert _timed("plan", lambda s: {"x": 1})({}) == {"x": 1}
+        assert "[time] plan " in capsys.readouterr().out

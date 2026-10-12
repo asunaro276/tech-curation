@@ -17,15 +17,19 @@ def _item(title: str, url: str = "", worth: float = 0.5, source: str = "zenn", p
 PAST = [{"date": "2026-10-06", "no": 2, "topic": "Go", "title": "Go 1.25 RC", "summary": "RC 版"}]
 
 
-def _run(items, labels, past=(), past_urls=()):
-    """labels: 記事タイトル → judge_group が返すラベル。呼ばれた記事のタイトルも返す。"""
+def _run(items, labels, past=(), past_urls=(), same=None):
+    """labels: 記事タイトル → judge_group が返すラベル（None は判定失敗）。
+    same: 記事タイトル → 1対1の確認の確率（省略時は 1.0 = 確認できた）。呼ばれた記事のタイトルも返す。"""
     called = []
+    same = same or {}
 
     def fake(item, seeds, past_groups, criteria):
         called.append(item["title"])
-        return labels.get(item["title"])
+        label = labels.get(item["title"])
+        return None if label is None else (label, 0.9)
 
-    with patch.object(grouping, "judge_group", side_effect=fake):
+    with patch.object(grouping, "judge_group", side_effect=fake), \
+            patch.object(grouping, "judge_same_subject", side_effect=lambda a, b, c: same.get(a["title"], 1.0)):
         groups = group_topic(items, list(past), set(past_urls), "基準")
     return groups, called
 
@@ -86,6 +90,23 @@ class TestGroupTopic:
         items = [_item("a", worth=0.9), _item("b", worth=0.8), _item("c", worth=0.7)]
         groups, _ = _run(items, {"b": None, "c": "g0"})
         assert [len(g["members"]) for g in groups] == [2, 1]
+
+
+    def test_join_rejected_by_pairwise_check_creates_new_group(self):
+        # 連載 #5 が先に処理され、無関係な g0 が選ばれても、1対1の確認で否定されれば新しいグループになる
+        items = [_item("Tisilia を公開", worth=0.9), _item("35日で #5", worth=0.85), _item("35日で #4", worth=0.8)]
+        groups, _ = _run(items, {"35日で #5": "g0", "35日で #4": "g1"}, same={"35日で #5": 0.1})
+        assert [[m["title"] for m in g["members"]] for g in groups] == [["Tisilia を公開"], ["35日で #5", "35日で #4"]]
+
+    def test_pairwise_check_failure_does_not_join(self):
+        items = [_item("a", worth=0.9), _item("b", worth=0.8)]
+        groups, _ = _run(items, {"b": "g0"}, same={"b": None})
+        assert len(groups) == 2
+
+    def test_same_as_past_rejected_is_kept_as_new(self):
+        groups, _ = _run([_item("Go 1.25 RC 解説")], {"Go 1.25 RC 解説": "same:p0"}, past=PAST, same={"Go 1.25 RC 解説": 0.2})
+        assert len(groups) == 1
+        assert groups[0]["follow_of"] is None
 
 
 class TestRepresentative:

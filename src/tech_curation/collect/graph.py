@@ -1,6 +1,8 @@
 """LangGraph collection pipeline definition."""
 from __future__ import annotations
 
+import time
+
 from langgraph.graph import END, START, StateGraph
 
 from tech_curation.collect.nodes.fetch_content import fetch_content_node
@@ -15,18 +17,29 @@ from tech_curation.collect.nodes.summarize_format import summarize_format_node
 from tech_curation.collect.state import CollectState
 
 
+def _timed(name: str, fn):
+    """ノードの所要時間を [time] としてログに出す。"""
+    def wrapper(state: CollectState) -> CollectState:
+        start = time.monotonic()
+        try:
+            return fn(state)
+        finally:
+            print(f"[time] {name} {time.monotonic() - start:.1f}s")
+    return wrapper
+
+
 def build_collect_graph() -> StateGraph:
     graph = StateGraph(CollectState)
 
-    graph.add_node("plan", plan_node)
-    graph.add_node("github", github_node)
-    graph.add_node("rss", rss_node)
-    graph.add_node("merge_filter", merge_filter_node)
-    graph.add_node("fetch_content", fetch_content_node)
-    graph.add_node("select", select_node)
-    graph.add_node("summarize_format", summarize_format_node)
-    graph.add_node("review", review_node)
-    graph.add_node("revise", revise_node)
+    graph.add_node("plan", _timed("plan", plan_node))
+    graph.add_node("github", _timed("github", github_node))
+    graph.add_node("rss", _timed("rss", rss_node))
+    graph.add_node("merge_filter", _timed("merge_filter", merge_filter_node))
+    graph.add_node("fetch_content", _timed("fetch_content", fetch_content_node))
+    graph.add_node("select", _timed("select", select_node))
+    graph.add_node("summarize_format", _timed("summarize_format", summarize_format_node))
+    graph.add_node("review", _timed("review", review_node))
+    graph.add_node("revise", _timed("revise", revise_node))
 
     graph.add_edge(START, "plan")
 

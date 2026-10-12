@@ -5,7 +5,7 @@ import re
 from typing import TypedDict
 
 from tech_curation.collect.state import CollectedItem, FollowRef
-from tech_curation.jev import NEW_GROUP, judge_group
+from tech_curation.jev import NEW_GROUP, judge_group, judge_same_subject
 from tech_curation.obsidian.records import PastGroup
 
 _KANA_RE = re.compile(r"[぀-ヿ]")
@@ -44,24 +44,47 @@ def group_topic(
             groups.append(Group(members=[item], follow_of=None))
             continue
 
-        label = judge_group(item, [g["members"][0] for g in groups], past_groups, grouping_criteria)
-        if label is None or label == NEW_GROUP:
-            groups.append(Group(members=[item], follow_of=None))
-            print(f"  [group] new g{len(groups) - 1} {title}")
-        elif label.startswith("g"):
-            groups[int(label[1:])]["members"].append(item)
-            print(f"  [group] join {label} {title}")
+        judged = judge_group(item, [g["members"][0] for g in groups], past_groups, grouping_criteria)
+        label, conf = judged if judged else (NEW_GROUP, 0.0)
+
+        if label.startswith("g"):
+            seed = groups[int(label[1:])]["members"][0]
+            if _confirmed(item, seed, grouping_criteria, f"{label} conf={conf:.2f}"):
+                groups[int(label[1:])]["members"].append(item)
+                print(f"  [group] join {label} conf={conf:.2f} {title} ← {seed['title'][:40]}")
+                continue
         elif label.startswith("same:p"):
             past = past_groups[int(label.split(":p")[1])]
-            print(f"  [group] drop (same as {past['date']} #{past['no']}) {title}")
+            if _confirmed(item, _past_as_item(past), grouping_criteria, f"{label} conf={conf:.2f}"):
+                print(f"  [group] drop (same as {past['date']} #{past['no']} conf={conf:.2f}) {title} ← {past['title'][:40]}")
+                continue
         elif label.startswith("follow:p"):
             past = past_groups[int(label.split(":p")[1])]
             groups.append(Group(
                 members=[item],
                 follow_of=FollowRef(date=past["date"], no=past["no"], title=past["title"]),
             ))
-            print(f"  [group] follow-up of {past['date']} #{past['no']} {title}")
+            print(f"  [group] follow-up of {past['date']} #{past['no']} conf={conf:.2f} {title} ← {past['title'][:40]}")
+            continue
+
+        # new、判定の失敗、1対1の確認で否定された場合は新しいグループにする
+        groups.append(Group(members=[item], follow_of=None))
+        print(f"  [group] new g{len(groups) - 1} {title}")
     return groups
+
+
+def _past_as_item(past: PastGroup) -> CollectedItem:
+    return {"title": past["title"], "body": past.get("summary", ""), "source": "", "topic": past.get("topic", "")}
+
+
+def _confirmed(item: CollectedItem, other: CollectedItem, grouping_criteria: str, context: str) -> bool:
+    """Choice の結果を1対1の判定で確かめる。確認できなければ（失敗も含めて）まとめない。"""
+    same = judge_same_subject(item, other, grouping_criteria)
+    if same is not None and same >= 0.5:
+        return True
+    shown = "ERR" if same is None else f"{same:.2f}"
+    print(f"  [group] reject {context} same={shown} {item['title'][:60]} ← {other['title'][:40]}")
+    return False
 
 
 def representative_of(group: Group) -> CollectedItem:

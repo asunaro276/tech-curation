@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -18,8 +19,10 @@ API_GATEWAY_URL = os.environ.get("API_GATEWAY_URL", "")
 
 
 def handler(event: dict, context) -> dict:
+    start = time.monotonic()
     setup_ob_credentials(VAULT_ROOT)
     ob_sync_pull(VAULT_ROOT)
+    print(f"[time] setup+sync_pull {time.monotonic() - start:.1f}s")
 
     prompts_path = VAULT_ROOT / "agent-config" / "prompts.md"
     if prompts_path.exists():
@@ -63,7 +66,9 @@ def handler(event: dict, context) -> dict:
     record = build_daily_record(date_str, number_items(items_by_topic))
     write_vault_file(VAULT_ROOT, record_path(date_str), json.dumps(record, ensure_ascii=False, indent=2))
 
+    push_start = time.monotonic()
     ob_sync_push(VAULT_ROOT)
+    print(f"[time] sync_push {time.monotonic() - push_start:.1f}s / total {time.monotonic() - start:.1f}s")
 
     return {
         "statusCode": 200,
