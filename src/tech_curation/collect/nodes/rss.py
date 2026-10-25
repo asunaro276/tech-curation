@@ -16,6 +16,7 @@ DEFAULT_FEEDS = [
     "https://news.ycombinator.com/rss",
     "https://zenn.dev/feed",
     "https://qiita.com/popular-items/feed",
+    "https://gihyo.jp/feed/rss2",
 ]
 
 FEEDS_VAULT_PATH = "agent-config/feeds.md"
@@ -57,6 +58,8 @@ def _source_label(url: str) -> str:
         return "jser"
     if "codezine.jp" in url:
         return "codezine"
+    if "gihyo.jp" in url:
+        return "gihyo"
     if "substack" in url:
         return "substack"
     return "rss"

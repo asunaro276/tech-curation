@@ -463,3 +463,27 @@ class TestTrendBucket:
         config = AgentConfig(topic_quotas={"トレンド": 5, "Go": 1})
         assert candidate_slots("トレンド", 4, config) == 30
         assert candidate_slots("Go", 4, config) == 4
+
+
+class TestSecurityTopic:
+    def test_japanese_keyword_matches_inside_sentence(self):
+        from tech_curation.collect.nodes.merge_filter import _assign_topic
+
+        item = _topic_item("OpenSSLに深刻な脆弱性、修正版が公開", "https://gihyo.jp/news/1", source="gihyo")
+        assert _assign_topic(item, ["Go", "セキュリティ", "トレンド"]) == "セキュリティ"
+
+    def test_ascii_keyword_keeps_word_boundary(self):
+        from tech_curation.collect.nodes.merge_filter import _assign_topic
+
+        item = _topic_item("CVE-2026-1234 in libfoo", "https://a.example/1")
+        assert _assign_topic(item, ["セキュリティ", "トレンド"]) == "セキュリティ"
+        unrelated = _topic_item("Insecurely fast builds", "https://a.example/2")
+        assert _assign_topic(unrelated, ["セキュリティ", "トレンド"]) == "トレンド"
+
+    def test_default_quota(self):
+        assert AgentConfig().quota_for("セキュリティ") == 3
+
+    def test_gihyo_source_label(self):
+        from tech_curation.collect.nodes.rss import _source_label
+
+        assert _source_label("https://gihyo.jp/feed/rss2") == "gihyo"

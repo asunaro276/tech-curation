@@ -28,12 +28,20 @@ _TOPIC_EXTRAS: dict[str, list[str]] = {
     "claude": ["anthropic"],
     "node.js": ["nodejs", "node"],
     "react": ["react.js", "reactjs", "next.js", "nextjs"],
+    "セキュリティ": [
+        "security", "cve", "vulnerability", "zero-day", "malware", "ransomware", "owasp",
+        "脆弱性", "ゼロデイ", "マルウェア", "ランサムウェア", "不正アクセス", "情報漏えい", "情報漏洩", "サイバー攻撃",
+    ],
 }
 
 
 def _topic_patterns(topic: str) -> list[re.Pattern]:
     keywords = [topic.lower()] + _TOPIC_EXTRAS.get(topic.lower(), [])
-    return [re.compile(rf"\b{re.escape(kw)}\b", re.IGNORECASE) for kw in keywords]
+    # 日本語は単語の区切りに空白が無く \b が効かないので、ASCII のキーワードだけ単語境界で囲む
+    return [
+        re.compile(rf"\b{re.escape(kw)}\b" if kw.isascii() else re.escape(kw), re.IGNORECASE)
+        for kw in keywords
+    ]
 
 
 _CATCHALL_TOPIC = "トレンド"
